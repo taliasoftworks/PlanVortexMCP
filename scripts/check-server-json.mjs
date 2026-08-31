@@ -39,6 +39,34 @@ if (!schemaUrl) {
     process.exit(1);
 }
 
+//COMPROBAR PRIMERO QUE EL ESQUEMA DECLARADO ES EL VIGENTE.
+//
+//Sin esto, esta comprobacion no vale nada, y ya paso: el fichero declaraba el esquema `2025-07-09`
+//—que sigue publicado y descargandose bien— y validaba en verde, mientras la API viva lo rechazaba
+//con un 422. El `2025-07-09` es snake_case y el vigente es camelCase, asi que "validar" contra el
+//viejo era exactamente lo contrario de lo que hacia falta.
+//
+//La fuente de verdad no es el esquema que uno elija: es el que el registro estampa en los
+//servidores que ya tiene dados de alta.
+try {
+    const listado = await fetch("https://registry.modelcontextprotocol.io/v0/servers?limit=20");
+    if (listado.ok) {
+        const { servers = [] } = await listado.json();
+        const vigentes = new Set(servers.map((entrada) => entrada?.server?.$schema).filter(Boolean));
+        if (vigentes.size > 0 && !vigentes.has(schemaUrl)) {
+            process.stderr.write(
+                `server.json declara el esquema:\n  ${schemaUrl}\n` +
+                    `pero el registro esta usando:\n  ${[...vigentes].join("\n  ")}\n` +
+                    "Actualiza el $schema y revisa los nombres de los campos: han cambiado de " +
+                    "snake_case a camelCase entre versiones.\n",
+            );
+            process.exit(1);
+        }
+    }
+} catch {
+    //Sin red se sigue: esto es una comprobacion, no una dependencia.
+}
+
 const response = await fetch(schemaUrl);
 if (!response.ok) {
     //Sin red no se falla el build: se avisa y se sigue. Es una comprobacion, no una dependencia.

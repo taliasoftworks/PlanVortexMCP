@@ -4,6 +4,22 @@ All notable changes to `planvortex-mcp` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **`server.json` was written against an obsolete schema, so the listing in the official MCP
+  registry failed silently on every release.** The registry job carries `continue-on-error` by
+  design — it is in preview and must not fail a release already on npm — so the run stayed green and
+  the server never appeared anywhere.
+
+    The trap is that the old schema (`2025-07-09`) is still published and still downloads fine, so a
+    validator pointed at it goes green while the live API answers `422`. Between that revision and the
+    current one (`2025-12-11`) the field names changed from `snake_case` to `camelCase`.
+
+    `npm run check:registry` now asks the registry which schema it is actually stamping on its own
+    entries before validating against it. Nothing here changes the published package.
+
 ## [0.1.1] — 2026-08-31
 
 ### Fixed

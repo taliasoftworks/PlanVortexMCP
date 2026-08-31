@@ -1,49 +1,45 @@
 {
-    "$schema": "https://static.modelcontextprotocol.io/schemas/2025-07-09/server.schema.json",
+    "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
     "name": "io.github.taliasoftworks/planvortex",
-    "description": "Schedule posts, read comments and answer messages across eleven social networks with PlanVortex.",
+    "title": "PlanVortex",
+    "description": "Schedule posts, read comments and answer messages across eleven social networks.",
     "repository": {
         "url": "https://github.com/taliasoftworks/PlanVortexMCP",
         "source": "github"
     },
-    "website_url": "https://planvortex.com/developers",
+    "websiteUrl": "https://planvortex.com/developers",
     "version": "0.1.1",
     "packages": [
         {
-            "registry_type": "npm",
+            "registryType": "npm",
+            "registryBaseUrl": "https://registry.npmjs.org",
             "identifier": "planvortex-mcp",
             "version": "0.1.1",
+            "runtimeHint": "npx",
             "transport": { "type": "stdio" },
-            "environment_variables": [
+            "environmentVariables": [
                 {
                     "name": "PLANVORTEX_CLIENT_ID",
                     "description": "Client id of a PlanVortex app (Custom plan). Panel: Settings > Apps.",
-                    "is_required": true,
-                    "is_secret": false
+                    "isRequired": true
                 },
                 {
                     "name": "PLANVORTEX_CLIENT_SECRET",
                     "description": "Secret of that app.",
-                    "is_required": true,
-                    "is_secret": true
+                    "isRequired": true,
+                    "isSecret": true
                 },
                 {
                     "name": "PLANVORTEX_ORGANIZATION_ID",
-                    "description": "Default organization id. Optional: saves a discovery call per conversation.",
-                    "is_required": false,
-                    "is_secret": false
+                    "description": "Default organization id. Optional: saves a discovery call per conversation."
                 },
                 {
                     "name": "PLANVORTEX_MCP_UPLOAD_DIRS",
-                    "description": "Directories upload_media may read from. Empty means none.",
-                    "is_required": false,
-                    "is_secret": false
+                    "description": "Directories upload_media may read from. Empty means none."
                 },
                 {
                     "name": "PLANVORTEX_MCP_READ_ONLY",
-                    "description": "Set to 1 to remove the nine write tools.",
-                    "is_required": false,
-                    "is_secret": false
+                    "description": "Set to 1 to remove the nine write tools."
                 }
             ]
         }

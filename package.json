@@ -1,0 +1,82 @@
+{
+    "name": "planvortex-mcp",
+    "version": "0.1.0",
+    "description": "Official MCP server for PlanVortex: let your AI assistant schedule posts, read the comment inbox and reply to messages across ten social networks.",
+    "keywords": [
+        "mcp",
+        "modelcontextprotocol",
+        "planvortex",
+        "social-media",
+        "scheduling",
+        "publishing",
+        "claude",
+        "ai-agent"
+    ],
+    "mcpName": "io.github.taliasoftworks/planvortex",
+    "homepage": "https://planvortex.com/developers",
+    "bugs": {
+        "url": "https://github.com/taliasoftworks/PlanVortexMCP/issues"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/taliasoftworks/PlanVortexMCP.git"
+    },
+    "license": "MIT",
+    "author": "Talia Softworks",
+    "type": "module",
+    "engines": {
+        "node": ">=20"
+    },
+    "bin": {
+        "planvortex-mcp": "./dist/index.js"
+    },
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "default": "./dist/index.js"
+        },
+        "./package.json": "./package.json"
+    },
+    "files": [
+        "dist"
+    ],
+    "scripts": {
+        "build": "tsup",
+        "typecheck": "tsc --noEmit",
+        "check:version": "node scripts/check-version.mjs",
+        "lint": "eslint .",
+        "format": "prettier --write .",
+        "format:check": "prettier --check .",
+        "test": "vitest run",
+        "test:watch": "vitest",
+        "test:coverage": "vitest run --coverage",
+        "test:live": "vitest run --config vitest.live.config.ts",
+        "inspector": "npx -y @modelcontextprotocol/inspector node dist/index.js",
+        "bundle": "npx -y @anthropic-ai/mcpb pack",
+        "prepublishOnly": "npm run check:version && npm run build"
+    },
+    "dependencies": {
+        "@modelcontextprotocol/node": "^2.0.0",
+        "@modelcontextprotocol/server": "^2.0.0",
+        "planvortex": "^0.4.0",
+        "zod": "^4.0.0"
+    },
+    "devDependencies": {
+        "@eslint/js": "^9.21.0",
+        "@modelcontextprotocol/client": "^2.0.0",
+        "@types/node": "^22.13.5",
+        "@typescript-eslint/eslint-plugin": "^8.24.1",
+        "@typescript-eslint/parser": "^8.24.1",
+        "@vitest/coverage-v8": "^3.0.6",
+        "eslint": "^9.21.0",
+        "globals": "^15.15.0",
+        "msw": "^2.7.3",
+        "prettier": "^3.5.2",
+        "tsup": "^8.4.0",
+        "tsx": "^4.19.3",
+        "typescript": "^5.7.3",
+        "vitest": "^3.0.6"
+    }
+}

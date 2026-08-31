@@ -1,0 +1,49 @@
+{
+    "manifest_version": "0.2",
+    "name": "planvortex",
+    "display_name": "PlanVortex",
+    "version": "0.1.0",
+    "description": "Schedule posts, read comments and answer messages across eleven social networks.",
+    "long_description": "The official MCP server for PlanVortex. Schedule and publish posts, read the comment and review inbox, answer private messages and pull stats across Facebook, Instagram, LinkedIn, TikTok, X, WhatsApp, YouTube, Google Business, Bluesky, Discord and Telegram. Needs a PlanVortex app from the Custom plan. This server never deletes anything.",
+    "author": { "name": "Talia Softworks", "url": "https://planvortex.com" },
+    "homepage": "https://planvortex.com/developers",
+    "documentation": "https://github.com/taliasoftworks/PlanVortexMCP#readme",
+    "support": "https://github.com/taliasoftworks/PlanVortexMCP/issues",
+    "license": "MIT",
+    "keywords": ["social-media", "scheduling", "publishing", "planvortex"],
+    "server": {
+        "type": "node",
+        "entry_point": "dist/index.js",
+        "mcp_config": {
+            "command": "node",
+            "args": ["${__dirname}/dist/index.js"],
+            "env": {
+                "PLANVORTEX_CLIENT_ID": "${user_config.client_id}",
+                "PLANVORTEX_CLIENT_SECRET": "${user_config.client_secret}",
+                "PLANVORTEX_ORGANIZATION_ID": "${user_config.organization_id}"
+            }
+        }
+    },
+    "user_config": {
+        "client_id": {
+            "type": "string",
+            "title": "Client ID",
+            "description": "From your PlanVortex app (Custom plan): Settings > Apps.",
+            "required": true
+        },
+        "client_secret": {
+            "type": "string",
+            "title": "Client secret",
+            "description": "The secret of that app.",
+            "sensitive": true,
+            "required": true
+        },
+        "organization_id": {
+            "type": "string",
+            "title": "Default organization (optional)",
+            "description": "Leave empty if your app reaches a single organization.",
+            "required": false
+        }
+    },
+    "compatibility": { "runtimes": { "node": ">=20" } }
+}

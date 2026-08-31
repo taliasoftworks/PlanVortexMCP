@@ -1,0 +1,65 @@
+name: CI
+
+on:
+    push:
+        branches: [main]
+    pull_request:
+
+jobs:
+    test:
+        runs-on: ubuntu-latest
+        strategy:
+            fail-fast: false
+            matrix:
+                # El SDK v2 de MCP exige Node >= 20, que es lo que declara `engines`.
+                node: [20, 22, 24]
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: ${{ matrix.node }}
+                  cache: npm
+            - run: npm ci
+            - run: npm run lint
+            - run: npm run typecheck
+            - run: npm test
+            - run: npm run build
+
+    starts:
+        # Que el paquete construido ARRANQUE de verdad. Un fallo de `exports`, un `bin` sin shebang o
+        # un import que solo existe en desarrollo no lo ve ningun test unitario: lo ve esto.
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+                  cache: npm
+            - run: npm ci
+            # La version vive en cinco sitios y el registro oficial de MCP valida que la de
+            # `server.json` case con la del paquete npm. Si no cuadran, la release entra en npm y se
+            # cae en el registro, que es donde peor se ve porque ese job va con `continue-on-error`.
+            - run: npm run check:version
+            - run: npm run build
+            - name: --version responde
+              run: node dist/index.js --version
+            - name: Sin credenciales, falla diciendo lo del plan Custom
+              run: |
+                  if node dist/index.js 2>err.txt; then
+                    echo "Arranco sin credenciales, y no deberia."
+                    exit 1
+                  fi
+                  grep -q "Custom plan" err.txt
+
+    coverage:
+        # Las capas 1 y 2. La 3 (contra un PlanVortex real) y la 4 (eleccion de herramienta) NO estan
+        # aqui ni pueden estarlo: una necesita un stack y credenciales, y la otra un modelo.
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+                  cache: npm
+            - run: npm ci
+            - run: npm run test:coverage

@@ -1,0 +1,16 @@
+# Todo se guarda en LF, pase lo que pase en la maquina de quien commitea.
+#
+# No es cosmetica. Los workflows llevan bloques `run: |` que son shell, y la CI corre en Linux: un
+# fichero guardado con CRLF hace que cada linea acabe en `\r` y el runner responde
+# `$'\r': command not found`, un error que no menciona los finales de linea por ninguna parte. Lo
+# mismo con el Dockerfile.
+#
+# Hoy no pasa porque `core.autocrlf=true` normaliza al guardar, pero eso es la configuracion de UNA
+# maquina. Quien clone con `autocrlf=false` —o en Linux, o en un CI— no la tiene, y entonces sus
+# CRLF entran en el repositorio. Esto lo decide el repositorio y no el clon.
+* text=auto eol=lf
+
+# Binarios que no se tocan.
+*.png binary
+*.jpg binary
+*.mcpb binary

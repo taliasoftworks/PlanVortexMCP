@@ -1,0 +1,51 @@
+{
+    "$schema": "https://static.modelcontextprotocol.io/schemas/2025-07-09/server.schema.json",
+    "name": "io.github.taliasoftworks/planvortex",
+    "description": "Schedule posts, read the comment inbox and answer private messages across eleven social networks with PlanVortex.",
+    "repository": {
+        "url": "https://github.com/taliasoftworks/PlanVortexMCP",
+        "source": "github"
+    },
+    "websiteUrl": "https://planvortex.com/developers",
+    "version": "0.1.0",
+    "packages": [
+        {
+            "registryType": "npm",
+            "identifier": "planvortex-mcp",
+            "version": "0.1.0",
+            "transport": { "type": "stdio" },
+            "environmentVariables": [
+                {
+                    "name": "PLANVORTEX_CLIENT_ID",
+                    "description": "Client id of a PlanVortex app (Custom plan). Panel: Settings > Apps.",
+                    "isRequired": true,
+                    "isSecret": false
+                },
+                {
+                    "name": "PLANVORTEX_CLIENT_SECRET",
+                    "description": "Secret of that app.",
+                    "isRequired": true,
+                    "isSecret": true
+                },
+                {
+                    "name": "PLANVORTEX_ORGANIZATION_ID",
+                    "description": "Default organization id. Optional: saves a discovery call per conversation.",
+                    "isRequired": false,
+                    "isSecret": false
+                },
+                {
+                    "name": "PLANVORTEX_MCP_UPLOAD_DIRS",
+                    "description": "Directories upload_media may read from. Empty means none.",
+                    "isRequired": false,
+                    "isSecret": false
+                },
+                {
+                    "name": "PLANVORTEX_MCP_READ_ONLY",
+                    "description": "Set to 1 to remove the nine write tools.",
+                    "isRequired": false,
+                    "isSecret": false
+                }
+            ]
+        }
+    ]
+}

@@ -1,0 +1,93 @@
+name: Release
+
+# El tag es lo que publica. `workflow_dispatch` esta ademas para poder relanzar el publish sin
+# mover el tag: cuando lo que falla es la fontaneria de npm y no el codigo, retaguear cada intento
+# ensucia el historico de una release.
+on:
+    push:
+        tags: ["v*"]
+    workflow_dispatch:
+
+jobs:
+    publish:
+        runs-on: ubuntu-latest
+        permissions:
+            # Trusted publishing (OIDC): npm verifica que el paquete sale de ESTE repo y de este
+            # workflow. No hay NPM_TOKEN en los secretos, que es justo el secreto que se filtra.
+            #
+            # OJO, la leccion que costo tres intentos en `planvortex`: esto firma la provenance Y
+            # autentica, pero son DOS cosas separadas. Cuando el publicador de confianza no casa, npm
+            # firma igual y el PUT se va sin credencial; el sintoma es un `E404` que parece decir que el
+            # paquete no existe y significa que no tienes permiso. En npmjs.com el repo tiene que estar
+            # escrito exactamente `taliasoftworks/PlanVortexMCP`, con sus mayusculas.
+            id-token: write
+            contents: write
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+                  cache: npm
+                  registry-url: https://registry.npmjs.org
+            # Trusted publishing (OIDC) necesita npm >= 11.5.1, y Node 22 trae npm 10.x.
+            - run: npm install -g npm@latest
+
+            - name: Esta version ya esta publicada?
+              id: published
+              run: |
+                  version=$(node -p "require('./package.json').version")
+                  name=$(node -p "require('./package.json').name")
+                  echo "version=$version" >> "$GITHUB_OUTPUT"
+                  if npm view "$name@$version" version >/dev/null 2>&1; then
+                    echo "publicada=si" >> "$GITHUB_OUTPUT"
+                  else
+                    echo "publicada=no" >> "$GITHUB_OUTPUT"
+                  fi
+
+            - run: npm ci
+            - run: npm run check:version
+            - run: npm run lint
+            - run: npm run typecheck
+            - run: npm test
+            - run: npm run build
+
+            - name: Publicar en npm
+              if: steps.published.outputs.publicada == 'no'
+              run: npm publish --provenance --access public
+
+            # El bundle .mcpb: un zip con el manifest, el build y sus dependencias, que Claude
+            # Desktop instala de un doble clic sin que el usuario tenga Node. Es la diferencia entre
+            # un integrador que lo prueba y uno que lo deja para otro dia.
+            #
+            # `mcpb pack` mete node_modules dentro, que es justo lo que lo hace instalable sin
+            # preparar nada. Por eso se podan las dependencias de desarrollo ANTES: con ellas el
+            # bundle pasa de decenas de megas, y casi todo seria tsup, vitest y eslint, que ahi no
+            # pintan nada.
+            - name: Podar dependencias de desarrollo
+              run: npm prune --omit=dev
+
+            - name: Construir el bundle .mcpb
+              run: npx -y @anthropic-ai/mcpb pack . planvortex-mcp.mcpb
+
+            - name: Adjuntarlo a la release
+              uses: softprops/action-gh-release@v2
+              if: startsWith(github.ref, 'refs/tags/')
+              with:
+                  files: planvortex-mcp.mcpb
+
+    registry:
+        # El registro oficial de MCP. Va en un job APARTE y con `continue-on-error` a proposito: esta
+        # en preview, y un fallo suyo no puede tumbar una release que ya esta en npm.
+        needs: publish
+        runs-on: ubuntu-latest
+        continue-on-error: true
+        permissions:
+            id-token: write
+            contents: read
+        steps:
+            - uses: actions/checkout@v4
+            - name: Instalar mcp-publisher
+              run: |
+                  curl -sL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_amd64.tar.gz" | tar xz mcp-publisher
+            - run: ./mcp-publisher login github-oidc
+            - run: ./mcp-publisher publish

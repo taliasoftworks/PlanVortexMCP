@@ -40,6 +40,9 @@ jobs:
             # `server.json` case con la del paquete npm. Si no cuadran, la release entra en npm y se
             # cae en el registro, que es donde peor se ve porque ese job va con `continue-on-error`.
             - run: npm run check:version
+            # El server.json del registro MCP: su esquema es snake_case y el fallo no se ve leyendo.
+            # Las altas de la 0.1.0 y la 0.1.1 murieron por esto, en un job con continue-on-error.
+            - run: npm run check:registry
             - run: npm run build
             - name: --version responde
               run: node dist/cli.js --version

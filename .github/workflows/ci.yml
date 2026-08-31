@@ -42,14 +42,39 @@ jobs:
             - run: npm run check:version
             - run: npm run build
             - name: --version responde
-              run: node dist/index.js --version
+              run: node dist/cli.js --version
             - name: Sin credenciales, falla diciendo lo del plan Custom
               run: |
-                  if node dist/index.js 2>err.txt; then
+                  if node dist/cli.js 2>err.txt; then
                     echo "Arranco sin credenciales, y no deberia."
                     exit 1
                   fi
                   grep -q "Custom plan" err.txt
+
+            # COMO LO ARRANCA UN USUARIO DE VERDAD, que no es `node dist/...`: se empaqueta, se
+            # instala y se ejecuta por el `bin`. Y en un directorio CON UN ESPACIO en el nombre.
+            #
+            # Esto no es rebuscado, es la reproduccion exacta de un fallo que llego a npm en la
+            # 0.1.0: el bin comparaba `process.argv[1]` con `import.meta.url` para decidir si lo
+            # habian ejecutado o importado, y `import.meta.url` es una URL, asi que un espacio
+            # viaja como `%20` y una tilde como `%C3%A9`. No coincidian, el proceso terminaba con
+            # codigo 0 y SIN ESCRIBIR NADA, y `npx planvortex-mcp` se quedaba mudo para cualquiera
+            # con un espacio o un acento en su ruta. En Linux y macOS pasaba siempre, porque npm
+            # instala el bin como enlace simbolico y ahi los dos valores nunca coinciden.
+            #
+            # Ningun test unitario ve esto. Este paso si.
+            - name: El bin funciona instalado y en una ruta con espacios
+              run: |
+                  npm pack --pack-destination /tmp
+                  mkdir -p "/tmp/con espacio" && cd "/tmp/con espacio"
+                  npm init -y >/dev/null
+                  npm install /tmp/planvortex-mcp-*.tgz >/dev/null
+                  salida=$(./node_modules/.bin/planvortex-mcp --version)
+                  if [ -z "$salida" ]; then
+                    echo "El bin no imprimio nada. Se ejecuto pero no arranco."
+                    exit 1
+                  fi
+                  echo "El bin responde: $salida"
 
     coverage:
         # Las capas 1 y 2. La 3 (contra un PlanVortex real) y la 4 (eleccion de herramienta) NO estan

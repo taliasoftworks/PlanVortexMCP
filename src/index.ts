@@ -67,14 +67,6 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
     log.info(`servidor listo (v${VERSION}, ${config.readOnly ? "sólo lectura" : "lectura y escritura"})`);
 }
 
-//`import.meta.url` contra `process.argv[1]` no vale en Windows —barras y unidad—, así que se compara
-//lo que de verdad importa: que este módulo sea el punto de entrada y no un import de un test.
-const invokedDirectly =
-    process.argv[1] !== undefined && import.meta.url.endsWith(process.argv[1].replace(/\\/g, "/"));
-
-if (invokedDirectly) {
-    void main().catch((error: unknown) => {
-        process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);
-        process.exitCode = 1;
-    });
-}
+//Aqui NO se arranca nada. Quien ejecuta es `cli.ts`, que es el `bin`, y ahi esta explicado por
+//que estan separados: adivinar si a un modulo lo han ejecutado o importado no tiene una respuesta
+//fiable, y cuando falla, falla en silencio.

@@ -1,6 +1,6 @@
 {
     "name": "planvortex-mcp",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "description": "Official MCP server for PlanVortex: let your AI assistant schedule posts, read the comment inbox and reply to messages across ten social networks.",
     "keywords": [
         "mcp",
@@ -28,7 +28,7 @@
         "node": ">=20"
     },
     "bin": {
-        "planvortex-mcp": "./dist/index.js"
+        "planvortex-mcp": "./dist/cli.js"
     },
     "main": "./dist/index.js",
     "types": "./dist/index.d.ts",
@@ -54,7 +54,7 @@
         "test:watch": "vitest",
         "test:coverage": "vitest run --coverage",
         "test:live": "vitest run --config vitest.live.config.ts",
-        "inspector": "npx -y @modelcontextprotocol/inspector node dist/index.js",
+        "inspector": "npx -y @modelcontextprotocol/inspector node dist/cli.js",
         "bundle": "npx -y @anthropic-ai/mcpb pack",
         "prepublishOnly": "npm run check:version && npm run build"
     },

@@ -44,8 +44,6 @@ patchJson("manifest.json", [[/("version":\s*")[^"]+(")/, `$1${version}$2`]]);
 
 //Lo que el servidor anuncia en `server/discover` y en `--version`: lo unico que ve alguien
 //depurando una conexion.
-patchJson("src/config.ts", [
-    [/(export const VERSION = ")[^"]+(")/, `$1${version}$2`],
-]);
+patchJson("src/config.ts", [[/(export const VERSION = ")[^"]+(")/, `$1${version}$2`]]);
 
 process.stdout.write(`Version ${version} escrita en server.json, manifest.json y src/config.ts.\n`);

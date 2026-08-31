@@ -89,5 +89,30 @@ jobs:
             - name: Instalar mcp-publisher
               run: |
                   curl -sL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_amd64.tar.gz" | tar xz mcp-publisher
+
+            # ESPERAR A QUE NPM SIRVA LA VERSION ANTES DE PUBLICAR EN EL REGISTRO.
+            #
+            # El registro comprueba la propiedad DESCARGANDO el paquete de npm y mirando su campo
+            # `mcpName`. Si corre en el segundo siguiente al `npm publish`, se encuentra un 404: npm
+            # tarda en propagar y sirve respuestas cacheadas mientras tanto. En la 0.1.0 lo vimos a
+            # mano — `npm view` decia 404 durante minutos con el paquete ya publicado.
+            #
+            # Sin esta espera, el fallo parece del registro y no lo es. Y como este job va con
+            # `continue-on-error`, la release se queda verde y nadie se entera.
+            - name: Esperar a que npm sirva la version
+              run: |
+                  version=$(node -p "require('./package.json').version")
+                  name=$(node -p "require('./package.json').name")
+                  for intento in $(seq 1 30); do
+                    if npm view "$name@$version" version --prefer-online >/dev/null 2>&1; then
+                      echo "npm ya sirve $name@$version (intento $intento)."
+                      exit 0
+                    fi
+                    echo "npm todavia no tiene $name@$version; reintento $intento de 30."
+                    sleep 10
+                  done
+                  echo "npm no sirvio $name@$version en cinco minutos."
+                  exit 1
+
             - run: ./mcp-publisher login github-oidc
             - run: ./mcp-publisher publish

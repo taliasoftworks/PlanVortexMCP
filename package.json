@@ -1,7 +1,7 @@
 {
     "name": "planvortex-mcp",
-    "version": "0.1.1",
-    "description": "Official MCP server for PlanVortex: let your AI assistant schedule posts, read the comment inbox and reply to messages across ten social networks.",
+    "version": "0.1.2",
+    "description": "Official MCP server for PlanVortex: let your AI assistant schedule posts, read the comment inbox and reply to messages across eleven social networks.",
     "keywords": [
         "mcp",
         "modelcontextprotocol",

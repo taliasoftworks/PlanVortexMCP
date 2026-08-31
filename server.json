@@ -8,13 +8,13 @@
         "source": "github"
     },
     "websiteUrl": "https://planvortex.com/developers",
-    "version": "0.1.1",
+    "version": "0.1.2",
     "packages": [
         {
             "registryType": "npm",
             "registryBaseUrl": "https://registry.npmjs.org",
             "identifier": "planvortex-mcp",
-            "version": "0.1.1",
+            "version": "0.1.2",
             "runtimeHint": "npx",
             "transport": { "type": "stdio" },
             "environmentVariables": [

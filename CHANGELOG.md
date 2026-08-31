@@ -6,6 +6,8 @@ All notable changes to `planvortex-mcp` are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.2] — 2026-08-31
+
 ### Fixed
 
 - **`server.json` was written against an obsolete schema, so the listing in the official MCP
@@ -19,6 +21,11 @@ All notable changes to `planvortex-mcp` are documented here. The format follows
 
     `npm run check:registry` now asks the registry which schema it is actually stamping on its own
     entries before validating against it. Nothing here changes the published package.
+
+- **The package described itself as covering ten social networks when it covers eleven.** That
+  sentence is the one npmjs.com prints under the package name, and it was the only place still
+  saying ten — `server.json`, `manifest.json`, the README and the server's own instructions
+  all said eleven. Telegram was the network missing from the count.
 
 ## [0.1.1] — 2026-08-31
 
@@ -71,5 +78,6 @@ All notable changes to `planvortex-mcp` are documented here. The format follows
 Name reservation, published by hand so that npm trusted publishing could be configured against an
 existing package. Not intended for use.
 
+[0.1.2]: https://github.com/taliasoftworks/PlanVortexMCP/releases/tag/v0.1.2
 [0.1.1]: https://github.com/taliasoftworks/PlanVortexMCP/releases/tag/v0.1.1
 [0.1.0]: https://github.com/taliasoftworks/PlanVortexMCP/releases/tag/v0.1.0

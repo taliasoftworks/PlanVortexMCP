@@ -4,3 +4,9 @@ coverage
 *.mcpb
 .env
 .env.live
+
+# Nunca un token dentro del repositorio. El fichero de un solo uso con el que se publica a mano
+# —cuando todavia no hay OIDC, o sea la primera vez— se borra en cuanto se usa, pero si alguien se
+# lo deja olvidado, que al menos no lo trague git.
+.npmrc
+.npmrc.*

@@ -1,5 +1,7 @@
 # planvortex-mcp
 
+[![smithery badge](https://smithery.ai/badge/taliasoftworks/planvortex)](https://smithery.ai/servers/taliasoftworks/planvortex)
+
 The official [Model Context Protocol](https://modelcontextprotocol.io) server for
 [PlanVortex](https://planvortex.com). It lets an AI assistant — Claude Desktop, Claude Code, Cursor,
 VS Code — schedule posts, read the comment inbox and answer private messages across eleven social

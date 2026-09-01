@@ -28,19 +28,22 @@ The tests need no network and no credentials, on purpose.
 
 Four layers, and each one catches something the others cannot.
 
-| Layer            | What it pins                                                                                                             | Command             | Cost            |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------ | ------------------- | --------------- |
-| **1 — tools**    | Each tool's logic with the API mocked (`msw`): projections, error translation, organization resolution, dedupe cache.    | `npm test`          | free            |
-| **2 — protocol** | The server through a **real MCP client** over an in-memory transport: tool order, schemas, `isError`, stdout purity.     | `npm test`          | free            |
-| **3 — live**     | The 25 tools end to end against a real PlanVortex stack. The only layer that sees an `outputSchema` that no longer fits. | `npm run test:live` | needs the stack |
-| **4 — choice**   | That a model picks the right tool first time for a plain-language request.                                               | manual              | needs a model   |
+| Layer            | What it pins                                                                                                             | Command                        | Cost            |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------ | --------------- |
+| **1 — tools**    | Each tool's logic with the API mocked (`msw`): projections, error translation, organization resolution, dedupe cache.    | `npm test`                     | free            |
+| **2 — protocol** | The server through a **real MCP client** over an in-memory transport: tool order, schemas, `isError`, stdout purity.     | `npm test`                     | free            |
+| **3 — live**     | The 25 tools end to end against a real PlanVortex stack. The only layer that sees an `outputSchema` that no longer fits. | `npm run test:live`            | needs the stack |
+| **4 — choice**   | That a model picks the right tool first time for a plain-language request.                                               | `node scripts/choice-eval.mjs` | needs a model   |
 
 Layers 1 and 2 run in CI. An unmocked request fails the test, so a tool that calls the wrong route
 cannot go green quietly.
 
 **Layer 4 is the one with no equivalent in the libraries, and it gives the most signal: a tool
-nobody picks is a broken tool, however green its tests are.** Run the cases in `test/choice.md` by
-hand against a real client before a release.
+nobody picks is a broken tool, however green its tests are.** `node scripts/choice-eval.mjs` runs
+the twelve cases of `test/choice.md` through a headless Claude Code with this server as its only
+MCP and reports which tool each one actually picked. Run it before a release. It needs `.env.live`
+and a model, so it stays out of CI — read the header of that file before trusting a run: removing
+the built-in tools and blocking the writes are both done with a flag other than the obvious one.
 
 ## The rules that are not negotiable
 

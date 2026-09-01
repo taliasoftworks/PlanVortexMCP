@@ -124,13 +124,29 @@ live("lectura de publicaciones, comentarios y mensajes", () => {
         await call("get_publication", { id_publication: env.PLANVORTEX_LIVE_PUBLICATION_ID });
     });
 
-    it("list_comments", async () => {
-        expect(await call("list_comments", { limit: 3 })).toContain("untrusted_content");
+    it("list_comments, y si hay alguno viene envuelto", async () => {
+        const text = await call("list_comments", { limit: 3 });
+        //Un buzón vacío no puede probar la trampa 2, y exigirle el envoltorio hacía fallar la
+        //capa entera por no tener datos. Cuando hay comentarios, el envoltorio no es opcional.
+        if (text.includes("No results.")) return;
+        expect(text).toContain("untrusted_content");
     });
 
-    it("list_conversations, si hay una cuenta en el entorno", async () => {
+    it("list_conversations, si la cuenta del entorno es de una red con DMs", async () => {
         if (!env.PLANVORTEX_LIVE_ACCOUNT_ID) return;
-        await call("list_conversations", { id_account: env.PLANVORTEX_LIVE_ACCOUNT_ID, limit: 3 });
+        //YouTube, Bluesky, Discord y Google Business no tienen mensajes directos: la API contesta
+        //1502 y eso es la respuesta CORRECTA, no un fallo. Lo que se comprueba entonces es que el
+        //servidor lo traduce como una capacidad que no existe y no como un envío fallido.
+        const result = (await client.callTool({
+            name: "list_conversations",
+            arguments: { id_account: env.PLANVORTEX_LIVE_ACCOUNT_ID, limit: 3 },
+        })) as { content: { text?: string }[]; isError?: boolean };
+        const text = result.content.map((block) => block.text ?? "").join("\n");
+        if (result.isError && text.includes("1502")) {
+            expect(text).toContain("get_social_capabilities");
+            return;
+        }
+        expect(result.isError, text).toBeFalsy();
     });
 });
 
@@ -171,10 +187,20 @@ live("escritura (LIVE_ALLOW_WRITE=1)", () => {
     it("crea un BORRADOR y lo edita; nada sale a una red social", async () => {
         if (env.LIVE_ALLOW_WRITE !== "1") return;
         if (!env.PLANVORTEX_LIVE_ACCOUNT_ID) return;
-        //`draft` a propósito: un `ready` con fecha pasada publicaría de verdad.
+        //La red sale de la CUENTA, no de una constante: estaba fijada a `instagram` y en un
+        //stack cuya única cuenta es de otra red la escritura fallaba por el argumento, no por el
+        //servidor. Y `draft` a propósito: un `ready` con fecha pasada publicaría de verdad.
+        const accounts = (await client.callTool({
+            name: "list_accounts",
+            arguments: {},
+        })) as { structuredContent?: { accounts?: { id: string; social_network: string }[] } };
+        const account = (accounts.structuredContent?.accounts ?? []).find(
+            (item) => item.id === env.PLANVORTEX_LIVE_ACCOUNT_ID,
+        );
+        expect(account, "PLANVORTEX_LIVE_ACCOUNT_ID no está en la organización").toBeTruthy();
         const created = await call("create_publication", {
             id_account: env.PLANVORTEX_LIVE_ACCOUNT_ID,
-            social_network: "instagram",
+            social_network: account?.social_network,
             text: `planvortex-mcp layer 3 — ${new Date().toISOString()}`,
             state: "draft",
         });

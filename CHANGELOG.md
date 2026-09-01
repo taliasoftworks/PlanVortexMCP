@@ -6,6 +6,48 @@ All notable changes to `planvortex-mcp` are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.3] — 2026-09-01
+
+### Fixed
+
+- **Four families of API error were explained to the model with advice that could not be followed.**
+  All of them came out of running the layer 3 suite against a real PlanVortex for the first time.
+
+    The error catalogue groups codes by range, and a range is not a diagnosis. Error **516**
+    ("this needs a paid plan") lives in the 500-544 block, which the library calls `auth`, so the
+    server answered "your credentials were rejected, check `PLANVORTEX_CLIENT_ID` and
+    `PLANVORTEX_CLIENT_SECRET`" — with perfect credentials, sending whoever read it to inspect a
+    configuration file that was fine. The same block also holds **511**, **515**, **517** and
+    **542** (the Custom plan), plus **512** and **519**, which are not credentials either: they are
+    things an app cannot do with any credentials, and now point at `create_connect_link`.
+
+    Error **917** ("that publication does not exist") sat in the publication range and came back as
+    "this is a problem with the post itself, fix the text or the media" — there is no text to fix
+    when the id is wrong. **921**, **924** and **926** were misfiled the same way.
+
+    And **1502** ("this network has no direct messages") was answered with Meta's 24-hour window
+    rule, on a call that was not sending anything.
+
+- **A post created with errors read as a post that had gone out.** The server stores a publication
+  that does not validate — no title on YouTube, a broken account — with state `withErrors` and the
+  reasons inside, and answers `200`. `create_publication` showed `state: withErrors, errors: 2`
+  and nothing else, so the model had to call `get_publication` to find out why, or concluded the
+  post was published. It now lists the reasons and says plainly that nothing was sent.
+
+### Added
+
+- **Layer 4 (tool choice) is now a script, not a manual pass**: `node scripts/choice-eval.mjs` runs
+  the twelve cases of `test/choice.md` through a headless Claude Code with this server as its only
+  MCP, and reports which tool each case actually picked. It does not run in CI — it needs a model and
+  a stack — and it finds Claude Code inside the VS Code extension, so there is nothing to install.
+  A flag it does not recognise stops it: the default run starts twelve models, so a typo must not
+  be the thing that pays for them.
+
+### Changed
+
+- `list_comments` no longer prints the untrusted-content warning when the inbox is empty. There is
+  no third-party text to mark, and the warning is fifty words the model pays to read.
+
 ## [0.1.2] — 2026-08-31
 
 ### Fixed
@@ -78,6 +120,7 @@ All notable changes to `planvortex-mcp` are documented here. The format follows
 Name reservation, published by hand so that npm trusted publishing could be configured against an
 existing package. Not intended for use.
 
+[0.1.3]: https://github.com/taliasoftworks/PlanVortexMCP/releases/tag/v0.1.3
 [0.1.2]: https://github.com/taliasoftworks/PlanVortexMCP/releases/tag/v0.1.2
 [0.1.1]: https://github.com/taliasoftworks/PlanVortexMCP/releases/tag/v0.1.1
 [0.1.0]: https://github.com/taliasoftworks/PlanVortexMCP/releases/tag/v0.1.0

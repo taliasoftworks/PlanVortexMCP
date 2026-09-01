@@ -202,6 +202,93 @@ describe("trampa 4 — publicar no es idempotente y quien reintenta es el modelo
     });
 });
 
+describe("una publicación creada CON errores no es una publicación publicada", () => {
+    it("dice por qué no va a salir, sin obligar al modelo a ir a get_publication", async () => {
+        //Lo vio la capa 3: un borrador de YouTube sin título ni vídeo se CREA —respuesta 200— y se
+        //guarda en `withErrors`. El modelo veía `state: withErrors, errors: 2` y nada más. Aquí la
+        //red es instagram porque el catálogo de límites de la suite no trae YouTube, y lo que se
+        //prueba es el párrafo, no la red.
+        api.use(
+            organizations(ORG_A),
+            limitsHandler,
+            http.post(`${BASE_URL}/organizations/org-a/accounts/acc-1/publish`, () =>
+                HttpResponse.json({
+                    publication: {
+                        _id: "pub-1",
+                        creation_date: "2026-08-30T10:00:00.000Z",
+                        files: [],
+                        id_account: "acc-1",
+                        id_organization: "org-a",
+                        publication_errors: [
+                            {
+                                code: 700,
+                                message: "The account has an invalid token and needs to be reconnected",
+                            },
+                            { code: 915, message: "A publication requires a text or a file" },
+                        ],
+                        publication_type: "profile",
+                        retries: 0,
+                        social_network: "instagram",
+                        state: "withErrors",
+                        text: "algo",
+                    },
+                }),
+            ),
+        );
+        const harness = await withServer();
+        const text = textOf(
+            await harness.client.callTool({
+                name: "create_publication",
+                arguments: {
+                    id_account: "acc-1",
+                    social_network: "instagram",
+                    text: "algo",
+                    state: "draft",
+                },
+            }),
+        );
+        expect(text).toContain("will NOT go out");
+        expect(text).toContain("700");
+        expect(text).toContain("needs to be reconnected");
+        expect(text).toContain("915");
+        //Y se dice que no ha salido nada, que es la otra mitad del malentendido.
+        expect(text).toContain("nothing has been sent");
+        await harness.close();
+    });
+
+    it("una publicación sin errores no arrastra el párrafo", async () => {
+        api.use(
+            organizations(ORG_A),
+            limitsHandler,
+            http.post(`${BASE_URL}/organizations/org-a/accounts/acc-1/publish`, () =>
+                HttpResponse.json({
+                    publication: {
+                        _id: "pub-2",
+                        creation_date: "2026-08-30T10:00:00.000Z",
+                        files: [],
+                        id_account: "acc-1",
+                        id_organization: "org-a",
+                        publication_errors: [],
+                        publication_type: "profile",
+                        retries: 0,
+                        social_network: "instagram",
+                        state: "ready",
+                        text: "Pan",
+                    },
+                }),
+            ),
+        );
+        const harness = await withServer();
+        const text = textOf(
+            await harness.client.callTool({
+                name: "create_publication",
+                arguments: { id_account: "acc-1", social_network: "instagram", text: "Pan" },
+            }),
+        );
+        expect(text).not.toContain("will NOT go out");
+        await harness.close();
+    });
+});
 describe("trampas 5 y 13 — errores que el modelo pueda usar, y validar antes de llamar", () => {
     it("un texto demasiado largo se rechaza SIN llegar a la API", async () => {
         //Sin handler de `publish`: si la herramienta llamara, msw haría fallar el test.
@@ -265,6 +352,86 @@ describe("trampas 5 y 13 — errores que el modelo pueda usar, y validar antes d
         await harness.close();
     });
 
+    it("un 516 habla del PLAN, no de las credenciales de este servidor", async () => {
+        //Lo encontró la capa 3 y no lo podía encontrar ninguna otra: el 516 vive en el rango
+        //500-544, que la librería llama `auth`, así que salía con el consejo de «revisa
+        //PLANVORTEX_CLIENT_ID y PLANVORTEX_CLIENT_SECRET» — con las credenciales perfectas.
+        api.use(
+            organizations(ORG_A),
+            http.get(`${BASE_URL}/organizations/org-a/comments`, () =>
+                HttpResponse.json(
+                    { code: 516, message: "This funcionality requires a paid plan, actual is free" },
+                    { status: 400 },
+                ),
+            ),
+        );
+        const harness = await withServer();
+        const text = textOf(await harness.client.callTool({ name: "list_comments", arguments: {} }));
+        expect(text).toContain("516");
+        expect(text).toContain("PLAN limitation");
+        expect(text).toContain("get_plan_use");
+        expect(text).not.toContain("PLANVORTEX_CLIENT_SECRET");
+        await harness.close();
+    });
+
+    it("un 542 nombra el plan Custom, que es el que hace falta para tener app", async () => {
+        api.use(
+            organizations(ORG_A),
+            http.get(`${BASE_URL}/organizations/org-a/publish`, () =>
+                HttpResponse.json(
+                    { code: 542, message: "This functionality requires the custom plan" },
+                    { status: 400 },
+                ),
+            ),
+        );
+        const harness = await withServer();
+        const text = textOf(await harness.client.callTool({ name: "list_publications", arguments: {} }));
+        expect(text).toContain("Custom plan");
+        await harness.close();
+    });
+
+    it("un 512 manda a create_connect_link, no a cambiar las credenciales", async () => {
+        //Trampa 9 llegando desde la API: hay cosas que una app no puede hacer con ninguna credencial.
+        api.use(
+            organizations(ORG_A),
+            http.get(`${BASE_URL}/organizations/org-a/publish`, () =>
+                HttpResponse.json(
+                    {
+                        code: 512,
+                        message: "This funcionality requires user or temporal user, can't be done with app",
+                    },
+                    { status: 401 },
+                ),
+            ),
+        );
+        const harness = await withServer();
+        const text = textOf(await harness.client.callTool({ name: "list_publications", arguments: {} }));
+        expect(text).toContain("create_connect_link");
+        expect(text).not.toContain("PLANVORTEX_CLIENT_SECRET");
+        await harness.close();
+    });
+
+    it("un 917 manda a buscar otro id, no a reescribir el texto", async () => {
+        //Lo vio la capa 3 pidiendo las estadísticas de una publicación borrada: el 917 vive en el
+        //rango de publicaciones, así que salía con el consejo de «corrige el texto o los ficheros».
+        api.use(
+            organizations(ORG_A),
+            http.get(`${BASE_URL}/organizations/org-a/publish/pub-9`, () =>
+                HttpResponse.json({ code: 917, message: "Publication doesn't exists" }, { status: 400 }),
+            ),
+        );
+        const harness = await withServer();
+        const text = textOf(
+            await harness.client.callTool({
+                name: "get_publication",
+                arguments: { id_publication: "pub-9" },
+            }),
+        );
+        expect(text).toContain("does not exist");
+        expect(text).toContain("list_publications");
+        expect(text).not.toContain("Fix the text");
+        await harness.close();
+    });
     it("un error de publicación invita a corregir el post, no a reintentarlo igual", async () => {
         api.use(
             organizations(ORG_A),

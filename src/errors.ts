@@ -85,14 +85,9 @@ function headline(error: PlanVortexError): string {
 function advice(error: PlanVortexError): string {
     switch (error.family) {
         case "publication":
-            //900-960. Casi siempre corregible: sobran caracteres, la red no admite ese tipo de
-            //fichero, falta un título. Lo que hay que cambiar lo dice el propio mensaje del
-            //catálogo, que para eso los escribió alguien.
-            return (
-                "This is a problem with the post itself, and the message above says what to change. " +
-                "Fix the text, the media or the target network and call the tool again. " +
-                "Call get_social_limits if you need the exact per-network limits."
-            );
+            //900-960, y no todo lo que hay dentro es «arregla el post»: el rango mete también un
+            //id que no existe, un post ya enviado y dos topes de plan. Ver {@link publicationAdvice}.
+            return publicationAdvice(error);
         case "plan_limit":
             //1300-1408. NO se arregla reintentando, y si no se dice con todas las letras el modelo
             //reintenta tres veces y luego se inventa una explicación.
@@ -102,21 +97,9 @@ function advice(error: PlanVortexError): string {
                 "PlanVortex plan has to grow for this to work."
             );
         case "auth":
-            //501 y 522 los arregla la librería sola y no deberían llegar aquí. El 520 sí llega, y
-            //significa que a la app le faltan permisos: hay que decir CUÁLES.
-            if (error.code === 520) {
-                const required = requiredPermissions(error);
-                const detail = required.length > 0 ? ` Missing: ${required.join(", ")}.` : "";
-                return (
-                    `The PlanVortex app is authenticated but lacks the permissions for this call.${detail} ` +
-                    "Do not retry: a person has to grant them to the app in the PlanVortex panel."
-                );
-            }
-            return (
-                "The credentials of this MCP server were rejected. That is a configuration problem, " +
-                "not something the request can fix. Do not retry; tell the user to check the " +
-                "PLANVORTEX_CLIENT_ID and PLANVORTEX_CLIENT_SECRET of this server."
-            );
+            //El rango 500-544 se llama `auth` por el catálogo del servidor, no porque todo lo que
+            //cae dentro sea un problema de credenciales. Ver {@link authAdvice}.
+            return authAdvice(error);
         case "account":
             //700-715. La cuenta social está en error, y reconectarla es un OAuth con una persona
             //delante: el modelo no puede hacerlo (§ trampa 9).
@@ -131,6 +114,18 @@ function advice(error: PlanVortexError): string {
                 "then upload it again with upload_media."
             );
         case "messaging":
+            //1502 no es un envío fallido: es que esa red NO tiene mensajes directos, y la
+            //descubrió la capa 3 llamando a `list_conversations` sobre una cuenta de YouTube. El
+            //consejo de la ventana de 24 h ahí no dice nada —no se estaba enviando nada— y manda
+            //al modelo a reintentar en un sitio donde no hay nada que reintentar.
+            if (error.code === 1502) {
+                return (
+                    "This social network has no direct messages at all, so there is nothing to " +
+                    "read or send here. Do not retry and do not try another contact: call " +
+                    "get_social_capabilities to see which of the connected networks do have " +
+                    "conversations."
+                );
+            }
             //1500-1512. El error que se comete siempre: la ventana de 24 h de Meta.
             return (
                 "The message was not sent. On Facebook, Instagram and WhatsApp a free-form message " +
@@ -154,6 +149,124 @@ function advice(error: PlanVortexError): string {
             return (
                 "Read the message above before retrying: most of these are not fixed by repeating " +
                 "the same call."
+            );
+    }
+}
+
+/**
+ * El rango `publication` (900-960), desglosado por la misma razón que el de `auth` y descubierto
+ * igual: la capa 3 pidió las estadísticas de una publicación borrada y el servidor contestó
+ * «esto es un problema del post, corrige el texto o los ficheros y vuelve a llamar». No hay texto
+ * que corregir cuando el identificador no existe.
+ *
+ * Cuatro códigos del rango no se arreglan tocando el post:
+ *
+ * - **917**: ese id no existe (o está borrado). Se busca otro, no se reescribe nada.
+ * - **921**: ya salió. Editar una publicación enviada no es posible en ninguna red.
+ * - **924** y **926**: son topes —del plan y por cuenta— viviendo en el rango de publicaciones,
+ *   así que reintentar falla igual por mucho que se acorte el texto.
+ */
+function publicationAdvice(error: PlanVortexError): string {
+    switch (error.code) {
+        case 917:
+            return (
+                "That publication id does not exist in this organization: it was never created, it " +
+                "belongs to another organization or it has been deleted. Do not retry with the same " +
+                "id. Call list_publications and take an id from there."
+            );
+        case 921:
+            return (
+                "This post has already gone out, and a published post cannot be edited or " +
+                "rescheduled through PlanVortex. Do not retry. If the user wants a different text, " +
+                "it has to be a new publication."
+            );
+        case 924:
+        case 926:
+            return (
+                "This is a limit, not a problem with the post: retrying with a shorter text or " +
+                "other media will fail the same way. Do not retry. Call get_plan_use to show what " +
+                "is left, and either wait for the next period or tell the user their plan has to grow."
+            );
+        //Lo demás sí es el post: sobran caracteres, la red no admite ese tipo de fichero, falta un
+        //título. Lo que hay que cambiar lo dice el propio mensaje del catálogo, que para eso lo
+        //escribió alguien.
+        default:
+            return (
+                "This is a problem with the post itself, and the message above says what to change. " +
+                "Fix the text, the media or the target network and call the tool again. " +
+                "Call get_social_limits if you need the exact per-network limits."
+            );
+    }
+}
+
+/**
+ * El rango `auth` (500-544), desglosado, que es lo único de este fichero que no salió de leer el
+ * catálogo sino de EJECUTAR la capa 3: un stack con plan `free` contestó 516 a `list_comments` y
+ * el servidor lo tradujo por «tus credenciales fueron rechazadas, revisa PLANVORTEX_CLIENT_SECRET».
+ * Credenciales impecables, consejo imposible de seguir, y el modelo mandando a una persona a mirar
+ * un fichero de configuración que estaba bien.
+ *
+ * Dentro del rango conviven cuatro cosas que se arreglan de maneras distintas, y sólo la última es
+ * la configuración de este servidor:
+ *
+ * 1. **El plan no llega** (511, 515, 516, 517, 542). Es la trampa 15 llegando en caliente en vez de
+ *    en el arranque: las apps son del plan Custom, pero un cliente puede tener credenciales válidas
+ *    y un plan que no incluye lo que se acaba de pedir.
+ * 2. **Lo que una app no puede hacer nunca** (512, 519). No hay credencial que lo arregle: hace
+ *    falta una persona con sesión (§ trampa 9).
+ * 3. **Esa organización no es de esta app** (537).
+ * 4. **Le faltan permisos** (520), y hay que decir CUÁLES.
+ */
+function authAdvice(error: PlanVortexError): string {
+    switch (error.code) {
+        case 511: //el plan no tiene usuarios suficientes
+        case 515: //el plan no incluye conversaciones
+        case 516: //la funcionalidad exige plan de pago y el cliente está en `free`
+        case 542: //la funcionalidad exige el plan Custom
+            return (
+                "This is a PlanVortex PLAN limitation, not a credentials problem: the app is " +
+                "authenticated and the call is well formed, but the account's plan does not include " +
+                "this. Do not retry, and do not tell the user to check the server's credentials. " +
+                "Call get_plan_use to show the plan they are on, and tell them it has to grow for " +
+                "this to work." +
+                (error.code === 542 ? " This one needs the Custom plan specifically." : "")
+            );
+        //Se parece al anterior y se arregla de otra manera: aquí el plan es el correcto y lo que
+        //falla es el cobro. Subir de plan no lo desbloquea.
+        case 517:
+            return (
+                "The PlanVortex account is disabled because of its subscription, not because of " +
+                "this server's credentials. Do not retry: a person has to sort out the billing in " +
+                "the PlanVortex panel before any of this works."
+            );
+        case 512: //exige usuario o token temporal: no se puede hacer con una app
+        case 519: //exige otro tipo de token
+            return (
+                "This call cannot be made with an app's credentials at all, and this server only " +
+                "has an app: it needs a signed-in person. Do not retry. If the goal was to connect " +
+                "a social account, call create_connect_link and give the user the link; otherwise " +
+                "tell them this part has to be done by hand in the PlanVortex panel."
+            );
+        case 537:
+            return (
+                "This app does not have access to that organization. Call list_organizations and " +
+                "use one of the ids it returns; this server only reaches its own organizations."
+            );
+        case 520: {
+            const required = requiredPermissions(error);
+            const detail = required.length > 0 ? ` Missing: ${required.join(", ")}.` : "";
+            return (
+                `The PlanVortex app is authenticated but lacks the permissions for this call.${detail} ` +
+                "Do not retry: a person has to grant them to the app in the PlanVortex panel."
+            );
+        }
+        //501 y 522 los arregla la librería sola y no deberían llegar aquí. Lo que queda sí es la
+        //configuración de este servidor, y ahí el consejo de siempre es el bueno.
+        default:
+            return (
+                "The credentials of this MCP server were rejected. That is a configuration problem, " +
+                "not something the request can fix. Do not retry; tell the user to check the " +
+                "PLANVORTEX_CLIENT_ID and PLANVORTEX_CLIENT_SECRET of this server."
             );
     }
 }

@@ -138,7 +138,10 @@ export function registerPublicationTools(server: McpServer, ctx: Context): void 
                 publish_date: z.string().describe("ISO 8601. Leave empty to publish immediately.").optional(),
                 state: z
                     .enum(["draft", "ready"])
-                    .describe("'ready' publishes or schedules it; 'draft' just saves it.")
+                    .describe(
+                        "'ready' publishes or schedules it; 'draft' just saves it. A post with " +
+                            "problems is stored as 'withErrors' either way, and does not go out.",
+                    )
                     .default("ready"),
                 publication_type: z.enum(["profile", "page", "group", "reels", "stories"]).default("profile"),
                 id_organization: OrganizationArg,
@@ -209,7 +212,20 @@ export function registerPublicationTools(server: McpServer, ctx: Context): void 
                 ? "This post already existed: an identical one was created moments ago, so nothing " +
                   "was published twice. Here it is.\n\n"
                 : "";
-            return toolOk(`${preface}${asLines([view])}`, {
+            //Una publicación puede CREARSE bien y no salir: el servidor la guarda en `withErrors`
+            //con el motivo dentro, y eso llega como respuesta correcta, no como excepción. Sin
+            //esto el modelo leía `state: withErrors, errors: 2` y tenía que ir a `get_publication`
+            //a preguntar por qué, o —peor— daba el post por publicado. Lo vio la capa 3 al crear
+            //un borrador de YouTube sin título ni vídeo. Ni siquiera `draft` gana a esto: una
+            //publicación con problemas se guarda en `withErrors` aunque se pidiera borrador.
+            const details = publication.publication_errors ?? [];
+            const why =
+                details.length === 0
+                    ? ""
+                    : `\n\nIt was SAVED but it will NOT go out as it is:\n` +
+                      details.map((detail) => `- [${detail.code}] ${detail.message}`).join("\n") +
+                      `\n\nFix it with update_publication; nothing has been sent to the network.`;
+            return toolOk(`${preface}${asLines([view])}${why}`, {
                 publication: view,
                 already_existed: alreadyExisted,
             });

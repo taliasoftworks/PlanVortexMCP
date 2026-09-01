@@ -79,8 +79,10 @@ export function registerCommentTools(server: McpServer, ctx: Context): void {
             });
             const comments = page.data.map(projectComment);
             const note = paginationNote(comments.length, page.total, args.offset ?? 0);
-            const body = comments.length === 0 ? "" : `\n\n${asLines(comments)}`;
-            return toolOk(`${UNTRUSTED_NOTICE}${body}\n\n${note}`.trim(), {
+            //Sin comentarios no hay texto de terceros que marcar, y el aviso son cincuenta
+            //palabras que el modelo paga por leer (§ trampa 7). Un buzón vacío se dice y ya.
+            const head = comments.length === 0 ? "" : `${UNTRUSTED_NOTICE}\n\n${asLines(comments)}\n\n`;
+            return toolOk(`${head}${note}`.trim(), {
                 comments,
                 total: page.total,
             });

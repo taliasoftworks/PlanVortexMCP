@@ -4,15 +4,24 @@ All notable changes to `planvortex-mcp` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.5] — 2026-09-02
+
+The release that says twelve. Threads landed in the backend and this server never noticed, because
+nothing in it enumerates networks: `social_network` travels as a plain string and `SocialNetwork` in
+the library is an open enum, so every tool worked with a Threads account from day one while every
+sentence a person or a directory reads still said eleven.
 
 ### Changed
 
-- **Threads is the twelfth network, and this server still said eleven.** Nothing here enumerates
-  networks — `social_network` travels as a plain string — so every tool already worked with a
-  Threads account the day the backend shipped it. What was stale was every sentence a person or a
-  directory reads: the `instructions` the MCP client hands the model, the README, and the three
-  manifests (`package.json`, `server.json`, `manifest.json`).
+- **Threads is in the network list**, in the six places that are prose and no test watches: the
+  `INSTRUCTIONS` the MCP client hands the model, the README, `package.json`, `server.json` and
+  `manifest.json` (`description` **and** `long_description`).
+- **The two tool descriptions that enumerate capabilities**, which is where being out of date
+  actually misleads the model: `list_conversations` now says Threads has no private messages
+  (it does not: a Threads account has no inbox), and the comment-actions note counts it among the
+  networks that cannot delete somebody else's reply.
+- **`planvortex` bumped to `^0.7.0`**, the first version whose types know the twelfth network. The
+  caret on a `0.x` version does not cross a minor, so this had to be explicit.
 
 ## [0.1.4] — 2026-09-02
 

@@ -6,6 +6,14 @@ All notable changes to `planvortex-mcp` are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Threads is the twelfth network, and this server still said eleven.** Nothing here enumerates
+  networks — `social_network` travels as a plain string — so every tool already worked with a
+  Threads account the day the backend shipped it. What was stale was every sentence a person or a
+  directory reads: the `instructions` the MCP client hands the model, the README, and the three
+  manifests (`package.json`, `server.json`, `manifest.json`).
+
 ## [0.1.4] — 2026-09-02
 
 The release that made the server visible to a directory, and the trail that led there started with a

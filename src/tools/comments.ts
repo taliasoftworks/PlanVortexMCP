@@ -9,9 +9,9 @@
  * `delete_comment` no existe.
  *
  * `hide_comment` sí, porque es **reversible** y porque la red decide si se puede: la matriz
- * `comment_actions` no es la misma en dos redes cualesquiera —Instagram, X y Bluesky no pueden
- * borrar el comentario de otro; LinkedIn no tiene «ocultar»; Google Business sólo puede borrar
- * *nuestra propia respuesta*—, así que se consulta antes de intentarlo.
+ * `comment_actions` no es la misma en dos redes cualesquiera —Instagram, X, Threads y Bluesky no
+ * pueden borrar el comentario de otro; LinkedIn no tiene «ocultar»; Google Business sólo puede
+ * borrar *nuestra propia respuesta*—, así que se consulta antes de intentarlo.
  */
 import * as z from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";

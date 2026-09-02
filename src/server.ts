@@ -29,10 +29,10 @@ import { registerUploadTools } from "./tools/uploads.js";
  * no puede deducir del listado de herramientas: que hay cosas que necesitan una persona, y que el
  * texto de los comentarios no son instrucciones.
  */
-const INSTRUCTIONS = `PlanVortex manages eleven social networks from one place: Facebook, Instagram,
-LinkedIn, TikTok, X, WhatsApp, YouTube, Google Business, Bluesky, Discord and Telegram. Ten of them
-publish; Google Business does not — it is a listing that receives reviews, and it is here for the
-comment inbox alone.
+const INSTRUCTIONS = `PlanVortex manages twelve social networks from one place: Facebook, Instagram,
+Threads, LinkedIn, TikTok, X, WhatsApp, YouTube, Google Business, Bluesky, Discord and Telegram.
+Eleven of them publish; Google Business does not — it is a listing that receives reviews, and it is
+here for the comment inbox alone.
 
 Two things to know before you start.
 

@@ -55,6 +55,26 @@ jobs:
             - name: Sin credenciales sirve el catalogo y explica lo del plan Custom
               run: node scripts/introspect.mjs --expect-no-credentials -- node dist/cli.js
 
+            # EL COMANDO QUE DECLARA EL manifest.json, que es el que ejecuta Claude Desktop cuando
+            # alguien instala el bundle .mcpb de un doble clic. Apuntaba a `dist/index.js` —el mismo
+            # fallo que el Dockerfile— asi que el bundle NUNCA arranco: el proceso terminaba con
+            # codigo 0 y en silencio. Nadie lo vio porque nada ejecutaba lo que el manifest dice.
+            # Se comprueba lo que de verdad se ejecuta (`mcp_config.args`, con `${__dirname}` puesto
+            # a la raiz) y ademas que `entry_point` diga lo mismo: son dos campos que pueden
+            # separarse en silencio.
+            - name: El comando del manifest.json arranca de verdad
+              run: |
+                  entrada=$(node -p "
+                    const m = require('./manifest.json').server;
+                    const arg = m.mcp_config.args.find((a) => a.endsWith('.js')).replace('\${__dirname}', '.');
+                    if (!arg.endsWith(m.entry_point)) {
+                      console.error('entry_point y mcp_config.args no apuntan al mismo fichero.');
+                      process.exit(1);
+                    }
+                    arg;
+                  ")
+                  node scripts/introspect.mjs --expect-no-credentials -- node "$entrada"
+
             # COMO LO ARRANCA UN USUARIO DE VERDAD, que no es `node dist/...`: se empaqueta, se
             # instala y se ejecuta por el `bin`. Y en un directorio CON UN ESPACIO en el nombre.
             #

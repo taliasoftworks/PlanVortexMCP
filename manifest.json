@@ -13,10 +13,10 @@
     "keywords": ["social-media", "scheduling", "publishing", "planvortex"],
     "server": {
         "type": "node",
-        "entry_point": "dist/index.js",
+        "entry_point": "dist/cli.js",
         "mcp_config": {
             "command": "node",
-            "args": ["${__dirname}/dist/index.js"],
+            "args": ["${__dirname}/dist/cli.js"],
             "env": {
                 "PLANVORTEX_CLIENT_ID": "${user_config.client_id}",
                 "PLANVORTEX_CLIENT_SECRET": "${user_config.client_secret}",

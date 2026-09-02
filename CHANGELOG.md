@@ -18,6 +18,12 @@ listing that read `Container exited with code 1 before responding to ping`.
   in silence and never spoke a word of MCP. That is the failure the two-file split
   (`index.ts`/`cli.ts`) exists to warn about, and it went unnoticed because nothing ran the image.
 
+- **The `.mcpb` bundle had the same bug, and had never worked either.** `manifest.json` declared
+  `dist/index.js` as its entry point, so Claude Desktop installed the bundle with a double click and
+  started a process that exited with code 0 in silence — the server simply never appeared. It is the
+  same file as the Dockerfile's, found the same way: by running what the manifest says instead of
+  reading it.
+
 - **The image now speaks stdio by default.** It was pinned to `--http --host 0.0.0.0`, which is not
   what a container of an MCP server is for: a client starts one with `docker run -i` and a
   directory (Glama, Smithery) builds the Dockerfile, runs the image and asks for `tools/list` — and
@@ -42,8 +48,10 @@ listing that read `Container exited with code 1 before responding to ping`.
   a real stdio pipe. The script takes any command — `node dist/cli.js`, `docker run -i --rm <image>`
   — and performs the handshake a directory performs: `initialize`, the three listings, and a tool
   call. CI builds the Dockerfile and runs it against the image, plus the `--http` mode inside the
-  container, which had never been exercised either. The old check that asserted the server _refuses_
-  to start without credentials is now the opposite check, for the reason above.
+  container, which had never been exercised either, and it runs whatever command `manifest.json`
+  declares — checking on the way that `entry_point` and `mcp_config.args` still name the same file.
+  The old check that asserted the server _refuses_ to start without credentials is now the opposite
+  check, for the reason above.
 
 ## [0.1.3] — 2026-09-01
 

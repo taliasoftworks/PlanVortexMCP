@@ -9,7 +9,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { InMemoryTransport } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
-import { api, testConfig, withServer } from "./helpers.js";
+import { api, isError, testConfig, textOf, withServer } from "./helpers.js";
 import { createContext } from "../src/context.js";
 import { createServer } from "../src/server.js";
 
@@ -144,6 +144,32 @@ describe("PLANVORTEX_MCP_READ_ONLY", () => {
         await expect(
             harness.client.callTool({ name: "create_publication", arguments: {} }),
         ).rejects.toThrow();
+        await harness.close();
+    });
+});
+
+/**
+ * El servidor se levanta sin `client_id` y sin `client_secret`, que es EXACTAMENTE como lo levantan
+ * los directorios (Glama, Smithery) cuando construyen el Dockerfile para introspeccionarlo. Antes
+ * el proceso se negaba a arrancar y la ficha salía como «Container exited with code 1 before
+ * responding to ping».
+ */
+describe("sin credenciales", () => {
+    it("el catálogo entero se lista igual", async () => {
+        const harness = await withServer({ clientId: undefined, clientSecret: undefined });
+        const listed = (await harness.client.listTools()).tools.map((tool) => tool.name);
+        expect(listed).toEqual(EXPECTED_TOOLS);
+        await harness.close();
+    });
+
+    it("y la primera herramienta que sale a la red falla con la frase entera, no con un 401", async () => {
+        const harness = await withServer({ clientId: undefined, clientSecret: undefined });
+        const result = await harness.client.callTool({ name: "list_organizations", arguments: {} });
+        //`isError` y no un error de protocolo: así el modelo LEE el texto y se lo enseña a quien
+        //configuró el servidor, en vez de que el proceso se muera a mitad de conversación.
+        expect(isError(result)).toBe(true);
+        expect(textOf(result)).toContain("PLANVORTEX_CLIENT_ID");
+        expect(textOf(result)).toContain("Custom plan");
         await harness.close();
     });
 });

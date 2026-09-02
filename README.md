@@ -116,6 +116,10 @@ docker run --rm -p 127.0.0.1:3000:3000 \
   planvortex-mcp --http --host 0.0.0.0
 ```
 
+The flags are not optional there: **the image speaks stdio by default**, because that is what
+an MCP client starts (`docker run -i planvortex-mcp`) and what a server directory introspects.
+`--http` is the deployment mode, and you ask for it.
+
 ## Environment variables
 
 | Variable                     | Required                   | What it does                                                   |

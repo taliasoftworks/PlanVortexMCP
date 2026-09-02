@@ -6,6 +6,40 @@ All notable changes to `planvortex-mcp` are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **The Docker image never served anything, in any mode.** Its `ENTRYPOINT` ran `dist/index.js`,
+  which only _exports_ — the `bin` is `dist/cli.js` — so the container started, exited with code 0
+  in silence and never spoke a word of MCP. That is the failure the two-file split
+  (`index.ts`/`cli.ts`) exists to warn about, and it went unnoticed because nothing ran the image.
+
+- **The image now speaks stdio by default.** It was pinned to `--http --host 0.0.0.0`, which is not
+  what a container of an MCP server is for: a client starts one with `docker run -i` and a
+  directory (Glama, Smithery) builds the Dockerfile, runs the image and asks for `tools/list` — and
+  neither of those speaks HTTP. The `--http` mode is unchanged and now an argument behind the
+  image: `docker run ... planvortex-mcp --http --host 0.0.0.0`.
+
+- **Missing credentials no longer kill the process over stdio.** `PLANVORTEX_CLIENT_ID` and
+  `PLANVORTEX_CLIENT_SECRET` were required to boot, so a directory introspecting the server with no
+  environment at all got `Container exited with code 1 before responding to ping` and the listing
+  stayed empty. The server now starts, lists its 25 tools, and fails on the first tool that reaches
+  PlanVortex with the same message it used to print — which is also a better deal for whoever
+  misconfigures it in an MCP client: that message now arrives _in the conversation_ instead of
+  dying in a log behind "server disconnected". It still goes to `stderr` at startup, and no client
+  is built without credentials. In `--http` the process still refuses to start: that is a
+  deployment, and one that answers `200` while every tool fails is worse than one that does not
+  come up.
+
+### Added
+
+- **`scripts/introspect.mjs`, and CI now runs the Docker image.** All three bugs above shared one
+  cause: the four test layers exercise the server, and nothing ever ran the image or the binary over
+  a real stdio pipe. The script takes any command — `node dist/cli.js`, `docker run -i --rm <image>`
+  — and performs the handshake a directory performs: `initialize`, the three listings, and a tool
+  call. CI builds the Dockerfile and runs it against the image, plus the `--http` mode inside the
+  container, which had never been exercised either. The old check that asserted the server _refuses_
+  to start without credentials is now the opposite check, for the reason above.
+
 ## [0.1.3] — 2026-09-01
 
 ### Fixed

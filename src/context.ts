@@ -9,13 +9,20 @@
  */
 import { PlanVortex, type Organization } from "planvortex";
 import type { Config } from "./config.js";
-import { USER_AGENT } from "./config.js";
+import { CREDENTIALS_HELP, USER_AGENT } from "./config.js";
 import { ToolInputError } from "./errors.js";
 import { TokenBucket } from "./ratelimit.js";
 import { DedupeCache } from "./dedupe.js";
 import { log } from "./log.js";
 
 export interface Context {
+    /**
+     * El cliente de la librería. Es un **getter perezoso** y por una razón concreta: en stdio las
+     * credenciales pueden no estar (§ `main`), y aun así el servidor tiene que listar sus
+     * veinticinco herramientas. Se construye la primera vez que alguien va a salir a la red, y si
+     * entonces no hay credenciales lanza {@link ToolInputError} con {@link CREDENTIALS_HELP}, que
+     * `runTool` convierte en un `isError` que el modelo puede leerle al usuario.
+     */
     readonly pv: PlanVortex;
     readonly config: Config;
     /** El anti-duplicado de las escrituras (§ trampa 4). */
@@ -41,12 +48,21 @@ export function createContext(config: Config): Context {
         });
     };
 
-    const pv = new PlanVortex({
-        clientId: config.clientId,
-        clientSecret: config.clientSecret,
-        ...(config.baseUrl === undefined ? {} : { baseUrl: config.baseUrl }),
-        fetch: limitedFetch,
-    });
+    let client: PlanVortex | undefined;
+    const pv = (): PlanVortex => {
+        if (client) return client;
+        //Un `ToolInputError` y no un `ConfigError`: esto ya no es el arranque, es una herramienta
+        //en marcha, y lo que tiene que pasar es que el modelo reciba la frase y se la enseñe a
+        //quien configuró el servidor — no que el proceso se caiga en mitad de una conversación.
+        if (!config.clientId || !config.clientSecret) throw new ToolInputError(CREDENTIALS_HELP);
+        client = new PlanVortex({
+            clientId: config.clientId,
+            clientSecret: config.clientSecret,
+            ...(config.baseUrl === undefined ? {} : { baseUrl: config.baseUrl }),
+            fetch: limitedFetch,
+        });
+        return client;
+    };
 
     let organizationsCache: Organization[] | undefined;
     let resolved: string | undefined;
@@ -55,7 +71,7 @@ export function createContext(config: Config): Context {
         if (organizationsCache) return organizationsCache;
         //Una sola llamada: `/clients_organizations` trae cada cliente con sus organizaciones raíz
         //dentro. Con `clients.list()` + `clients.organizations()` serían 1 + N.
-        const page = await pv.clients.withOrganizations();
+        const page = await pv().clients.withOrganizations();
         organizationsCache = page.data.flatMap((client) => client.organizations ?? []);
         return organizationsCache;
     };
@@ -97,5 +113,13 @@ export function createContext(config: Config): Context {
         );
     };
 
-    return { pv, config, dedupe: new DedupeCache(), resolveOrganization, listOrganizations };
+    return {
+        get pv(): PlanVortex {
+            return pv();
+        },
+        config,
+        dedupe: new DedupeCache(),
+        resolveOrganization,
+        listOrganizations,
+    };
 }

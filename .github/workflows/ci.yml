@@ -46,13 +46,14 @@ jobs:
             - run: npm run build
             - name: --version responde
               run: node dist/cli.js --version
-            - name: Sin credenciales, falla diciendo lo del plan Custom
-              run: |
-                  if node dist/cli.js 2>err.txt; then
-                    echo "Arranco sin credenciales, y no deberia."
-                    exit 1
-                  fi
-                  grep -q "Custom plan" err.txt
+            # SIN CREDENCIALES EL SERVIDOR ARRANCA, y eso es lo que se comprueba. Antes esto exigia
+            # lo contrario —que el proceso muriera— y ahi estaba el fallo: los directorios (Glama,
+            # Smithery) levantan el servidor con CERO variables de entorno para leerle el catalogo,
+            # asi que un proceso que exige `client_id` para arrancar sale de ahi como una ficha
+            # vacia. Lo que si se exige es que el catalogo no venga vacio y que la primera
+            # herramienta que sale a la red explique lo del plan Custom (trampa 15).
+            - name: Sin credenciales sirve el catalogo y explica lo del plan Custom
+              run: node scripts/introspect.mjs --expect-no-credentials -- node dist/cli.js
 
             # COMO LO ARRANCA UN USUARIO DE VERDAD, que no es `node dist/...`: se empaqueta, se
             # instala y se ejecuta por el `bin`. Y en un directorio CON UN ESPACIO en el nombre.
@@ -78,6 +79,49 @@ jobs:
                     exit 1
                   fi
                   echo "El bin responde: $salida"
+
+    docker:
+        # QUE LA IMAGEN ARRANQUE Y HABLE MCP. Nada lo comprobaba, y por eso el 2026-09-02 la ficha de
+        # Glama salio como «Container exited with code 1 before responding to ping» con tres fallos
+        # encadenados dentro: el `ENTRYPOINT` apuntaba a `dist/index.js` —que solo exporta, asi que
+        # el contenedor terminaba con codigo 0 y en silencio—, la imagen estaba clavada en `--http`
+        # cuando un contenedor de un servidor MCP se arranca por stdio, y sin credenciales el
+        # proceso se negaba a arrancar. Ninguno de los tres lo puede ver un test del servidor.
+        #
+        # Esto es exactamente lo que hace un directorio: construir el Dockerfile, `docker run -i` sin
+        # ninguna variable de entorno, y pedir el catalogo.
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+            - run: docker build -t planvortex-mcp:ci .
+            - name: La imagen habla MCP por stdio sin entorno
+              run: node scripts/introspect.mjs --expect-no-credentials -- docker run -i --rm planvortex-mcp:ci
+            # El modo `--http` de la fase 6, que es la otra mitad del Dockerfile y la que nunca
+            # habia funcionado dentro de Docker.
+            - name: El modo --http responde desde el contenedor
+              run: |
+                  docker run -d --rm --name pvmcp -p 127.0.0.1:3000:3000 \
+                    -e PLANVORTEX_CLIENT_ID=x -e PLANVORTEX_CLIENT_SECRET=y \
+                    -e PLANVORTEX_MCP_AUTH_TOKEN=secreto \
+                    planvortex-mcp:ci --http --host 0.0.0.0
+                  for intento in $(seq 1 20); do
+                    curl -sf http://127.0.0.1:3000/health && break || sleep 1
+                  done
+                  curl -sf http://127.0.0.1:3000/health | grep -q '"ok":true'
+                  # TRAMPA 12: el puerto lleva dentro el client_secret, asi que sin token es un 401.
+                  codigo=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://127.0.0.1:3000/mcp)
+                  test "$codigo" = "401" || { echo "sin token contesto $codigo, no 401"; exit 1; }
+                  docker stop pvmcp
+            - name: Y se niega a atarse fuera de loopback sin token
+              run: |
+                  if docker run --rm -e PLANVORTEX_CLIENT_ID=x -e PLANVORTEX_CLIENT_SECRET=y \
+                       planvortex-mcp:ci --http --host 0.0.0.0; then
+                    echo "Arranco sin PLANVORTEX_MCP_AUTH_TOKEN, y no deberia."
+                    exit 1
+                  fi
 
     coverage:
         # Las capas 1 y 2. La 3 (contra un PlanVortex real) y la 4 (eleccion de herramienta) NO estan

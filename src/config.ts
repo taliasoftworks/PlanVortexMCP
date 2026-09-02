@@ -1,9 +1,13 @@
 /**
  * El entorno entero, validado con zod, en un solo sitio.
  *
- * Un fallo aquí sale por `stderr` con una frase que explica qué falta y **termina el proceso**: no
- * se arranca a medias. Y esa frase dice lo de la TRAMPA 15 —que las apps son exclusivas del plan
- * Custom— porque un `401` a secas manda a esa persona a abrir un ticket.
+ * Un fallo aquí sale por `stderr` con una frase que explica qué falta, y esa frase dice lo de la
+ * TRAMPA 15 —que las apps son exclusivas del plan Custom— porque un `401` a secas manda a esa
+ * persona a abrir un ticket.
+ *
+ * Lo que ese fallo hace DESPUÉS depende del transporte, y la diferencia se pagó con una ficha rota
+ * en un directorio: unas credenciales que faltan terminan el proceso en `--http` y **no** en stdio.
+ * La razón entera está en `main`.
  */
 import * as z from "zod";
 import type { LogLevel } from "./log.js";
@@ -18,9 +22,13 @@ export const USER_AGENT = `planvortex-mcp/${VERSION}`;
 export type TransportMode = "stdio" | "http";
 
 export interface Config {
-    /** La app del plan Custom. */
-    clientId: string;
-    clientSecret: string;
+    /**
+     * La app del plan Custom. **Opcionales en stdio**, y no por descuido: ver
+     * {@link CREDENTIALS_HELP}. Sin ellas el servidor arranca, lista sus herramientas y falla en la
+     * primera que salga a la red.
+     */
+    clientId: string | undefined;
+    clientSecret: string | undefined;
     /** Para apuntar a un stack local. Ausente = la nube. */
     baseUrl: string | undefined;
     /** La organización por defecto (§ trampa 1). Ahorra una llamada por conversación. */
@@ -51,7 +59,7 @@ export class ConfigError extends Error {
  * siquiera puede crear las credenciales que este servidor pide, y si el primer mensaje no lo dice,
  * esa persona se va a pasar la tarde buscando un fallo de configuración que no existe.
  */
-const CREDENTIALS_HELP = [
+export const CREDENTIALS_HELP = [
     "planvortex-mcp needs PLANVORTEX_CLIENT_ID and PLANVORTEX_CLIENT_SECRET.",
     "",
     "These come from an app in your PlanVortex account, and apps are part of the Custom plan.",
@@ -137,15 +145,19 @@ export function loadConfig(env: NodeJS.ProcessEnv, argv: readonly string[]): Con
     }
     const value = parsed.data;
 
-    if (!value.PLANVORTEX_CLIENT_ID || !value.PLANVORTEX_CLIENT_SECRET) {
-        throw new ConfigError(CREDENTIALS_HELP);
-    }
-
     const mode: TransportMode = flags.http ? "http" : "stdio";
     const host = flags.host ?? "127.0.0.1";
     const port = flags.port ?? 3000;
+    const hasCredentials = Boolean(value.PLANVORTEX_CLIENT_ID && value.PLANVORTEX_CLIENT_SECRET);
 
     if (mode === "http") {
+        //En `--http` sí se termina el proceso: eso es un despliegue, nadie está mirando el
+        //`stderr` de un contenedor que se queda arriba, y un servidor que contesta `200` a un
+        //`tools/list` y falla en las veinticinco herramientas es peor que uno que no arranca. En
+        //stdio es al revés, y por qué está en `main`.
+        if (!hasCredentials) {
+            throw new ConfigError(CREDENTIALS_HELP);
+        }
         if (!Number.isInteger(port) || port <= 0 || port > 65535) {
             throw new ConfigError(`--port must be a number between 1 and 65535, got "${port}".`);
         }

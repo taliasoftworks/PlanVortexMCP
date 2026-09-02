@@ -7,7 +7,7 @@
  * herramienta las probaría peor.
  */
 import { describe, expect, it, vi } from "vitest";
-import { ConfigError, isLoopback, loadConfig, parseArgs } from "../src/config.js";
+import { CREDENTIALS_HELP, ConfigError, isLoopback, loadConfig, parseArgs } from "../src/config.js";
 import { TokenBucket } from "../src/ratelimit.js";
 import { DedupeCache, fingerprint } from "../src/dedupe.js";
 import { countText, validatePublication } from "../src/limits.js";
@@ -19,16 +19,28 @@ const CREDENTIALS = { PLANVORTEX_CLIENT_ID: "id", PLANVORTEX_CLIENT_SECRET: "sec
 
 describe("configuración", () => {
     it("trampa 15 — sin credenciales, el mensaje habla del plan Custom", () => {
-        expect(() => loadConfig({}, [])).toThrow(ConfigError);
-        try {
-            loadConfig({}, []);
-        } catch (error) {
-            const message = (error as Error).message;
-            expect(message).toContain("Custom plan");
-            expect(message).toContain("PLANVORTEX_CLIENT_ID");
-            //Y dónde se crean, que es la pregunta siguiente.
-            expect(message).toContain("Apps");
-        }
+        expect(CREDENTIALS_HELP).toContain("Custom plan");
+        expect(CREDENTIALS_HELP).toContain("PLANVORTEX_CLIENT_ID");
+        //Y dónde se crean, que es la pregunta siguiente.
+        expect(CREDENTIALS_HELP).toContain("Apps");
+    });
+
+    it("en stdio, sin credenciales NO se tumba el arranque", () => {
+        //La ficha de Glama salía como «Container exited with code 1 before responding to ping»
+        //justo por lo contrario: los directorios levantan el servidor sin ninguna variable de
+        //entorno para pedirle `tools/list`. Que la config cargue es la mitad; la otra es que el
+        //servidor liste sus herramientas, y eso lo fija `protocol.test.ts`.
+        const config = loadConfig({}, []);
+        expect(config.clientId).toBeUndefined();
+        expect(config.clientSecret).toBeUndefined();
+        expect(config.mode).toBe("stdio");
+    });
+
+    it("en --http, sin credenciales sí se tumba el arranque", () => {
+        //Al revés que en stdio, y a propósito: un despliegue que se queda arriba contestando 200 a
+        //un `tools/list` y fallando en las veinticinco herramientas es peor que uno que no arranca.
+        expect(() => loadConfig({}, ["--http"])).toThrow(ConfigError);
+        expect(() => loadConfig({}, ["--http"])).toThrow(/PLANVORTEX_CLIENT_ID/);
     });
 
     it("trampa 12 — atarse fuera de loopback sin token no arranca", () => {

@@ -7,7 +7,7 @@
  * persona en una terminal.
  */
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
-import { ConfigError, HELP_TEXT, VERSION, loadConfig, parseArgs } from "./config.js";
+import { ConfigError, CREDENTIALS_HELP, HELP_TEXT, VERSION, loadConfig, parseArgs } from "./config.js";
 import { createContext } from "./context.js";
 import { createServer } from "./server.js";
 import { log, setLogLevel } from "./log.js";
@@ -50,6 +50,26 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
     }
 
     setLogLevel(config.logLevel);
+
+    //ARRANCAR SIN CREDENCIALES ES DELIBERADO, y sólo en stdio. Lo pagó una ficha rota en un
+    //directorio: Glama, Smithery y compañía construyen el Dockerfile, levantan el servidor **sin
+    //ninguna variable de entorno** y le piden `tools/list`; un proceso que se niega a arrancar sin
+    //`client_id` sale de ahí como «Container exited with code 1 before responding to ping» y el
+    //servidor no aparece listado en ningún sitio.
+    //
+    //Y la otra mitad, que es la que importa para quien lo instala: un cliente MCP que ve morir al
+    //proceso enseña «server disconnected» y nada más — la frase que explica qué falta se queda en
+    //un log que casi nadie abre. Arrancando, esa misma frase llega como resultado de la primera
+    //herramienta que se llame, o sea, dentro de la conversación.
+    //
+    //Lo que NO se hace es fingir que funciona: el aviso sale por `stderr` igual, y `ctx.pv` no
+    //construye ningún cliente sin credenciales.
+    if (!config.clientId || !config.clientSecret) {
+        log.error(
+            `starting without credentials, so every tool that reaches PlanVortex will fail:\n${CREDENTIALS_HELP}`,
+        );
+    }
+
     const ctx = createContext(config);
 
     if (config.mode === "http") {

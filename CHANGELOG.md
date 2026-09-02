@@ -6,6 +6,11 @@ All notable changes to `planvortex-mcp` are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.4] — 2026-09-02
+
+The release that made the server visible to a directory, and the trail that led there started with a
+listing that read `Container exited with code 1 before responding to ping`.
+
 ### Fixed
 
 - **The Docker image never served anything, in any mode.** Its `ENTRYPOINT` ran `dist/index.js`,
@@ -154,6 +159,7 @@ All notable changes to `planvortex-mcp` are documented here. The format follows
 Name reservation, published by hand so that npm trusted publishing could be configured against an
 existing package. Not intended for use.
 
+[0.1.4]: https://github.com/taliasoftworks/PlanVortexMCP/releases/tag/v0.1.4
 [0.1.3]: https://github.com/taliasoftworks/PlanVortexMCP/releases/tag/v0.1.3
 [0.1.2]: https://github.com/taliasoftworks/PlanVortexMCP/releases/tag/v0.1.2
 [0.1.1]: https://github.com/taliasoftworks/PlanVortexMCP/releases/tag/v0.1.1

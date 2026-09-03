@@ -4,6 +4,36 @@ All notable changes to `planvortex-mcp` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.6] — 2026-09-03
+
+**Publications are unlimited**, and until today this server was the last place still telling agents
+otherwise.
+
+That is worse here than in a typed library. A wrong type stops a build; a wrong sentence in a tool
+description is read by a model that then decides not to schedule the user's week. `get_plan_use`
+printed a `publications` row whose `limit` had quietly become `undefined` — and `asLines` drops
+`undefined`, so the model saw a counter climbing towards a ceiling nobody named.
+
+### Changed
+
+- `get_plan_use` reports `publications_this_month` with an explicit `unlimited` limit, and its
+  description says so twice: publications have no ceiling, and what can stop a batch is rate.
+- **The two rate brakes now get their own advice.** Errors 978 (too fast on this account) and 979
+  (that network's daily cap) are the only things that can stop a batch now, and both are
+  transient — the one thing the generic advice got backwards, since it told the model to fix the
+  post and call again. They are handled before the error family is even looked at, because they
+  were born above 960 and arrive unclassified with the published `planvortex`.
+- Error **924** (the monthly plan quota) is gone from the advice: the server retired it on
+  02-09-2026. **926**, the per-account safety net, stays and now says it is not something the user
+  fixes by paying more.
+- The `weekly_plan` prompt no longer tells the model to check there is room in the plan before
+  proposing posts.
+- **The API's own rate limit (545) is answered as what it is.** The public API is on every plan now,
+  free included, and it comes with a per-plan ceiling — so this server, which authenticates as an
+  app, can meet it on any tool. It lands in the `auth` family, whose advice talks about checking
+  credentials; a freshly minted token would hit it exactly the same. It is handled with the other
+  rate brakes instead: transient, wait what `Retry-After` says, do not retry in a loop.
+
 ## [0.1.5] — 2026-09-02
 
 The release that says twelve. Threads landed in the backend and this server never noticed, because

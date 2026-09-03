@@ -289,6 +289,33 @@ describe("una publicación creada CON errores no es una publicación publicada",
         await harness.close();
     });
 });
+describe("las publicaciones son ilimitadas, y el agente tiene que saberlo", () => {
+    it("get_plan_use no deja el contador de publicaciones sin techo y sin explicación", async () => {
+        //`asLines` se come los `undefined`, así que desde que el servidor dejó de mandar
+        //`limits.publications` la fila salía con `used` y sin `limit` — un hueco que un modelo
+        //rellena solo, y lo rellena mal: negándose a programar un lote «por si acaso».
+        api.use(
+            organizations(ORG_A),
+            http.get(`${BASE_URL}/organizations/org-a/use`, () =>
+                HttpResponse.json({
+                    actual_use: { accounts: 2, space: 1, integrations: 0, users: 1, publications: 137 },
+                    actual_asigned: { accounts: 2, space: 1, integrations: 0, users: 1 },
+                    limits: { accounts: 5, space: 5, integrations: 1, users: 3 },
+                }),
+            ),
+        );
+        const harness = await withServer();
+        const result = await harness.client.callTool({ name: "get_plan_use", arguments: {} });
+        expect(isError(result)).toBe(false);
+        const text = textOf(result);
+        expect(text).toContain("publications_this_month");
+        expect(text).toContain("used: 137");
+        expect(text).toContain("unlimited");
+        //Y lo que sí tiene techo lo sigue diciendo.
+        expect(text).toContain("limit: 5");
+        await harness.close();
+    });
+});
 describe("trampas 5 y 13 — errores que el modelo pueda usar, y validar antes de llamar", () => {
     it("un texto demasiado largo se rechaza SIN llegar a la API", async () => {
         //Sin handler de `publish`: si la herramienta llamara, msw haría fallar el test.
@@ -332,6 +359,80 @@ describe("trampas 5 y 13 — errores que el modelo pueda usar, y validar antes d
         await harness.close();
     });
 
+    it("el freno de ritmo dice que se espera, no que se reescriba el post", async () => {
+        //El 978 nació por encima del 960 —el techo que tenía el rango de publicaciones cuando eran
+        //un cupo—, así que llega SIN familia con la versión publicada de `planvortex`. Si se dejase
+        //caer en el consejo genérico, el modelo leería «esto es un problema del post, corrige el
+        //texto y vuelve a llamar»: reescribiría y reintentaría en bucle contra un freno que sólo
+        //cede con el tiempo.
+        api.use(
+            organizations(ORG_A),
+            limitsHandler,
+            http.post(`${BASE_URL}/organizations/org-a/accounts/acc-1/publish`, () =>
+                HttpResponse.json(
+                    { code: 978, message: "Publishing too fast on this account" },
+                    { status: 400 },
+                ),
+            ),
+        );
+        const harness = await withServer();
+        const result = await harness.client.callTool({
+            name: "create_publication",
+            arguments: { id_account: "acc-1", social_network: "instagram", text: "hola" },
+        });
+        expect(isError(result)).toBe(true);
+        const text = textOf(result);
+        expect(text).toContain("TRANSIENT");
+        expect(text).toContain("unlimited on every plan");
+        //Lo que NO puede decir: ni que se corrija el post ni que el plan tenga que crecer.
+        expect(text).not.toContain("problem with the post itself");
+        expect(text).not.toContain("plan has to grow");
+        await harness.close();
+    });
+
+    it("el ritmo de la API no se cuenta como un problema de credenciales", async () => {
+        //El 545 cae en la familia `auth`, cuyo consejo habla de revisar credenciales y pedir otro
+        //token. Con un token recién emitido pasaría exactamente lo mismo: lo único que arregla
+        //esto es esperar.
+        api.use(
+            organizations(ORG_A),
+            http.get(`${BASE_URL}/organizations/org-a/publish`, () =>
+                HttpResponse.json(
+                    { code: 545, message: "Too many API requests for this plan, slow down" },
+                    { status: 429 },
+                ),
+            ),
+        );
+        const harness = await withServer();
+        const result = await harness.client.callTool({ name: "list_publications", arguments: {} });
+        expect(isError(result)).toBe(true);
+        const text = textOf(result);
+        expect(text).toContain("TRANSIENT");
+        expect(text).toContain("Retry-After");
+        expect(text).not.toContain("Check the credentials");
+        await harness.close();
+    });
+    it("el tope diario de una red no se vende como un límite de plan", async () => {
+        api.use(
+            organizations(ORG_A),
+            limitsHandler,
+            http.post(`${BASE_URL}/organizations/org-a/accounts/acc-1/publish`, () =>
+                HttpResponse.json(
+                    { code: 979, message: "Daily publication limit reached on this social network" },
+                    { status: 400 },
+                ),
+            ),
+        );
+        const harness = await withServer();
+        const result = await harness.client.callTool({
+            name: "create_publication",
+            arguments: { id_account: "acc-1", social_network: "instagram", text: "hola" },
+        });
+        const text = textOf(result);
+        expect(text).toContain("NOT a plan limit");
+        expect(text).toContain("tomorrow");
+        await harness.close();
+    });
     it("un 520 dice QUÉ permisos faltan", async () => {
         api.use(
             organizations(ORG_A),

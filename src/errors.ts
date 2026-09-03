@@ -83,9 +83,17 @@ function headline(error: PlanVortexError): string {
 }
 
 function advice(error: PlanVortexError): string {
+    //Los dos frenos de ritmo van por delante de la familia, y a proposito. Nacieron por encima
+    //del 960 —el techo que tenia el rango `publication` cuando las publicaciones eran un cupo—,
+    //asi que con una version de `planvortex` anterior llegan SIN familia y caerian en el consejo
+    //generico. Y el generico es justo el contrario del bueno: aqui no hay nada que corregir en el
+    //post, hay que esperar.
+    if (error.code === 978 || error.code === 979 || error.code === 545) {
+        return rateAdvice(error);
+    }
     switch (error.family) {
         case "publication":
-            //900-960, y no todo lo que hay dentro es «arregla el post»: el rango mete también un
+            //900-979, y no todo lo que hay dentro es «arregla el post»: el rango mete también un
             //id que no existe, un post ya enviado y dos topes de plan. Ver {@link publicationAdvice}.
             return publicationAdvice(error);
         case "plan_limit":
@@ -154,18 +162,60 @@ function advice(error: PlanVortexError): string {
 }
 
 /**
- * El rango `publication` (900-960), desglosado por la misma razón que el de `auth` y descubierto
+ * El rango `publication` (900-979), desglosado por la misma razón que el de `auth` y descubierto
  * igual: la capa 3 pidió las estadísticas de una publicación borrada y el servidor contestó
  * «esto es un problema del post, corrige el texto o los ficheros y vuelve a llamar». No hay texto
  * que corregir cuando el identificador no existe.
  *
- * Cuatro códigos del rango no se arreglan tocando el post:
+ * Tres códigos del rango no se arreglan tocando el post:
  *
  * - **917**: ese id no existe (o está borrado). Se busca otro, no se reescribe nada.
  * - **921**: ya salió. Editar una publicación enviada no es posible en ninguna red.
- * - **924** y **926**: son topes —del plan y por cuenta— viviendo en el rango de publicaciones,
- *   así que reintentar falla igual por mucho que se acorte el texto.
+ * - **926**: el tope por cuenta y mes, que es una red de seguridad y no un cupo de plan: sigue
+ *   viviendo en el rango de publicaciones, así que reintentar falla igual por mucho que se
+ *   acorte el texto. El **924** que había aquí era el cupo MENSUAL del plan, y el servidor lo
+ *   retiró el 02-09-2026 al hacer las publicaciones ilimitadas.
+ *
+ * Y los dos frenos de ritmo, 978 y 979, ni siquiera llegan hasta aquí: los atiende
+ * {@link rateAdvice} antes de mirar la familia.
  */
+/**
+ * Los TRES frenos de ritmo: los dos de publicación —lo único que puede parar un lote desde que las
+ * publicaciones son ilimitadas (02-09-2026)— y el de la API entera, que llegó al abrirla a todos
+ * los planes.
+ *
+ * Y son el caso en que el consejo importa mas que el mensaje: los dos son TRANSITORIOS —esperar los
+ * arregla— mientras que todo lo que los rodea en el catalogo no lo es. Un modelo al que se le dice
+ * «no reintentes» aqui abandona un lote que habria salido entero diez minutos despues; uno al que
+ * no se le dice nada reintenta en bucle y se come el freno una y otra vez.
+ */
+function rateAdvice(error: PlanVortexError): string {
+    if (error.code === 545) {
+        //Este es de la CUENTA entera, no de una publicación: llega en cualquier herramienta, y
+        //cae en la familia `auth`, cuyo consejo habla de credenciales. Con un token recién
+        //emitido pasaría exactamente lo mismo.
+        return (
+            "This is the plan's API rate limit, and it is TRANSIENT: the credentials are fine and " +
+            "asking for a new token changes nothing. Wait the seconds the `Retry-After` header " +
+            "says and continue; if it keeps happening, space the calls out or the account needs a " +
+            "bigger plan. Do not retry in a loop."
+        );
+    }
+    if (error.code === 979) {
+        return (
+            "That social network has a daily publishing cap and this account has reached it today. " +
+            "This is NOT a plan limit and paying more does not lift it: it is the network's own " +
+            "ceiling. Do not retry today. Schedule the rest for tomorrow with publish_post, or use " +
+            "an account on another network. Call get_social_limits for the per-network numbers."
+        );
+    }
+    return (
+        "Too many publications too fast on this account. This is TRANSIENT and it is not a plan " +
+        "limit: publications are unlimited on every plan. Do not rewrite the post and do not retry " +
+        "immediately — wait and send the rest spaced out, or schedule them with a publish_date. " +
+        "Call get_social_limits for the per-hour and per-network daily caps."
+    );
+}
 function publicationAdvice(error: PlanVortexError): string {
     switch (error.code) {
         case 917:
@@ -180,12 +230,13 @@ function publicationAdvice(error: PlanVortexError): string {
                 "rescheduled through PlanVortex. Do not retry. If the user wants a different text, " +
                 "it has to be a new publication."
             );
-        case 924:
         case 926:
             return (
-                "This is a limit, not a problem with the post: retrying with a shorter text or " +
-                "other media will fail the same way. Do not retry. Call get_plan_use to show what " +
-                "is left, and either wait for the next period or tell the user their plan has to grow."
+                "This is a per-account cap, not a problem with the post: retrying with a shorter " +
+                "text or other media will fail the same way. Do not retry. The cap is monthly and " +
+                "per account, so either wait for the next month or use a different account. " +
+                "Publications themselves are unlimited on every plan: this is not something the " +
+                "user fixes by paying more."
             );
         //Lo demás sí es el post: sobran caracteres, la red no admite ese tipo de fichero, falta un
         //título. Lo que hay que cambiar lo dice el propio mensaje del catálogo, que para eso lo

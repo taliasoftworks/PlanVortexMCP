@@ -124,9 +124,13 @@ export function registerContextTools(server: McpServer, ctx: Context): void {
             name: "get_plan_use",
             title: "Get plan usage",
             description:
-                "What the organization's plan allows and what it has already used: publications, " +
-                "accounts, storage and integrations. Check this before promising the user a batch " +
-                "of posts — a plan limit is not a transient error and retrying never fixes it.",
+                "What the organization's plan allows and what it has already used: accounts, " +
+                "storage and integrations. Check this before promising the user a connected " +
+                "account — a plan limit is not a transient error and retrying never fixes it. " +
+                "PUBLICATIONS ARE UNLIMITED on every plan: the count is reported for context and " +
+                "has no ceiling, so never refuse to schedule posts over it. What can stop a batch " +
+                "is rate — a per-hour cap per account and a daily cap per network, both in " +
+                "get_social_limits — and that one IS transient: waiting fixes it.",
             inputSchema: z.object({ id_organization: OrganizationArg }),
             outputSchema: z.object({
                 limits: z.record(z.string(), z.unknown()),
@@ -139,7 +143,16 @@ export function registerContextTools(server: McpServer, ctx: Context): void {
             const idOrganization = await context.resolveOrganization(args.id_organization);
             const use = await context.pv.dashboard.use(idOrganization);
             const rows = [
-                { metric: "publications", used: use.actual_use.publications, limit: use.limits.publications },
+                //`limit` va como texto a proposito. Las publicaciones son ilimitadas desde el
+                //02-09-2026, asi que `use.limits.publications` ya no existe — y `asLines` se come
+                //los `undefined`, con lo que el agente veria un contador SIN techo y sin nadie que
+                //le diga que no lo tiene. Un agente que rellena ese hueco solo acaba negandose a
+                //programar.
+                {
+                    metric: "publications_this_month",
+                    used: use.actual_use.publications ?? 0,
+                    limit: "unlimited (rate-limited instead, see get_social_limits)",
+                },
                 { metric: "accounts", used: use.actual_use.accounts, limit: use.limits.accounts },
                 { metric: "storage_mb", used: use.actual_use.space, limit: use.limits.space },
                 { metric: "integrations", used: use.actual_use.integrations, limit: use.limits.integrations },

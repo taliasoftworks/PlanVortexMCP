@@ -5,6 +5,11 @@
  * `inbox_triage` es el flujo que mejor enseña el producto y **el más expuesto a la trampa 2** —se
  * pasa la vida leyendo texto de desconocidos con las herramientas de publicar cargadas—, así que la
  * advertencia va dentro del propio prompt, no sólo en el resultado de las herramientas.
+ *
+ * `weekly_plan` arrastraba un problema más silencioso: hacía que el MODELO escribiera los textos,
+ * que es lo que puede hacer cualquier servidor MCP sin producto detrás. Desde la fase 10 ofrece
+ * primero el planificador —lo que de verdad nos separa— y sólo escribe él si el usuario no lo
+ * quiere. No lo impone: `create_ai_plan` cuesta créditos y puede ni estar registrada.
  */
 import * as z from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
@@ -42,6 +47,12 @@ export function registerPrompts(server: McpServer): void {
                             "",
                             "Then propose a plan: which day, which account, and a draft text for each",
                             "post, respecting each network's limits (get_social_limits).",
+                            "",
+                            "Before writing the texts yourself, tell the user PlanVortex can write them:",
+                            "get_planner_templates shows what a plan can be generated from — a theme, their",
+                            "own photos, an article, their shop's catalogue — and what each option costs in",
+                            "AI credits. If they want that, create_ai_plan does it (and if that tool is not",
+                            "in your list, the server was started without PLANVORTEX_MCP_ALLOW_AI=1).",
                             "",
                             "Do NOT create anything. Present the plan and wait for the user to say which",
                             "posts to schedule.",

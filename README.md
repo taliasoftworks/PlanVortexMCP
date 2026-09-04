@@ -8,10 +8,10 @@ VS Code — schedule posts, read the comment inbox and answer private messages a
 networks: Facebook, Instagram, Threads, LinkedIn, TikTok, X, WhatsApp, YouTube, Google Business,
 Bluesky, Discord and Telegram.
 
-> **You need a PlanVortex app, and apps are part of the Custom plan.**
+> **You need a PlanVortex app, and every plan has them — the free one included.**
 > The server authenticates with a `client_id` and a `client_secret` that you create in the
-> PlanVortex panel under Settings → Apps. On any other plan those credentials cannot be created, and
-> this server has nothing to connect with.
+> PlanVortex panel under Settings → Apps. How many apps you get is what changes with the plan:
+> 1 on Free, 2 on Basic, 5 on Pro, 10 on Custom.
 
 ## Install
 
@@ -49,12 +49,14 @@ unread?"_
 
 ## What it can do
 
-Twenty-five tools, grouped by what they act on.
+Twenty-eight tools, grouped by what they act on — and a twenty-ninth, `create_ai_plan`, that you
+switch on yourself (see [Generating with AI](#generating-with-ai)).
 
 | Group      | Tools                                                                                                   |
 | ---------- | ------------------------------------------------------------------------------------------------------- |
 | Context    | `list_organizations`, `list_accounts`, `get_plan_use`, `get_unread_counts`                              |
 | Publishing | `list_publications`, `get_publication`, `create_publication`, `update_publication`, `retry_publication` |
+| AI planner | `get_planner_templates`, `list_ai_plans`, `get_ai_plan`, and `create_ai_plan` when enabled              |
 | Media      | `upload_media`                                                                                          |
 | Comments   | `list_comments`, `get_comment_thread`, `reply_to_comment`, `hide_comment`, `mark_comment_read`          |
 | Messages   | `list_conversations`, `list_messages`, `send_message`                                                   |
@@ -63,6 +65,30 @@ Twenty-five tools, grouped by what they act on.
 
 Plus three prompts — `weekly_plan`, `inbox_triage`, `publish_from_brief` — and four resources with
 the per-network limits, capabilities, comment matrix and your organizations.
+
+### Generating with AI
+
+PlanVortex does not just schedule what you wrote: it can **write the week for you**. Its planner
+turns a theme, your own photos, an article or a connected shop's catalogue into a week of posts, and
+`get_planner_templates` publishes the five templates with what each one costs.
+
+Reading is always available. **Creating a plan is not, unless you switch it on:**
+
+```json
+"env": { "PLANVORTEX_MCP_ALLOW_AI": "1" }
+```
+
+That is deliberate, and it is about your money rather than your safety. Generating a plan spends AI
+credits from your account, and an agent that retries in a loop is the worst possible caller for an
+endpoint that bills. The protocol's own answer to this — asking you to confirm from inside the
+server — is implemented by almost no client yet, so the confirmation is this line instead: a person
+writes it once, before any agent starts. With it absent, `create_ai_plan` is not in the tool list at
+all, so nothing can call it.
+
+Two more things worth knowing. `create_ai_plan` **does not return posts**: it queues the plan and
+returns the budget, and generation takes minutes — poll `get_ai_plan`. And what comes out are
+**drafts**; scheduling them is still a person's decision, one post at a time, through
+`update_publication`.
 
 ### Two things it deliberately cannot do
 
@@ -124,13 +150,14 @@ an MCP client starts (`docker run -i planvortex-mcp`) and what a server director
 
 | Variable                     | Required                   | What it does                                                   |
 | ---------------------------- | -------------------------- | -------------------------------------------------------------- |
-| `PLANVORTEX_CLIENT_ID`       | yes                        | The app from your Custom plan.                                 |
+| `PLANVORTEX_CLIENT_ID`       | yes                        | The app from your account. Every plan has apps.                |
 | `PLANVORTEX_CLIENT_SECRET`   | yes                        | Its secret. Never passed as a tool argument.                   |
 | `PLANVORTEX_ORGANIZATION_ID` | no                         | Default organization. Saves a discovery call per conversation. |
 | `PLANVORTEX_BASE_URL`        | no                         | Point at another PlanVortex deployment.                        |
 | `PLANVORTEX_MCP_UPLOAD_DIRS` | no                         | Directories `upload_media` may read from. Empty means none.    |
 | `PLANVORTEX_MCP_AUTH_TOKEN`  | with `--http` off-loopback | Bearer token the HTTP endpoint requires.                       |
 | `PLANVORTEX_MCP_READ_ONLY`   | no                         | `1` removes the nine write tools.                              |
+| `PLANVORTEX_MCP_ALLOW_AI`    | no                         | `1` adds `create_ai_plan`, which spends AI credits.            |
 | `PLANVORTEX_MCP_LOG_LEVEL`   | no                         | `debug`, `info`, `warn`, `error`, `silent`. Always to stderr.  |
 
 ### Uploading media

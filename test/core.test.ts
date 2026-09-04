@@ -18,11 +18,16 @@ import { log, setLogLevel } from "../src/log.js";
 const CREDENTIALS = { PLANVORTEX_CLIENT_ID: "id", PLANVORTEX_CLIENT_SECRET: "secret" };
 
 describe("configuración", () => {
-    it("trampa 15 — sin credenciales, el mensaje habla del plan Custom", () => {
-        expect(CREDENTIALS_HELP).toContain("Custom plan");
+    it("sin credenciales, el mensaje dice qué faltan y dónde se crean — y NO manda a pagar", () => {
         expect(CREDENTIALS_HELP).toContain("PLANVORTEX_CLIENT_ID");
         //Y dónde se crean, que es la pregunta siguiente.
         expect(CREDENTIALS_HELP).toContain("Apps");
+        //La trampa 15 al revés. Este mensaje decía "apps are part of the Custom plan" y era cierto
+        //hasta el 02-09-2026, cuando la fase 2 quitó `requireCustomPlan` de las rutas de apps. Es
+        //el PRIMER texto que lee quien instala esto sin credenciales: mandaba a pagar a quien ya
+        //podía usarlo gratis. Que no vuelva.
+        expect(CREDENTIALS_HELP).not.toContain("Custom plan");
+        expect(CREDENTIALS_HELP).toContain("every plan");
     });
 
     it("en stdio, sin credenciales NO se tumba el arranque", () => {

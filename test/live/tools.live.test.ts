@@ -68,6 +68,9 @@ beforeAll(async () => {
         authToken: undefined,
         uploadDirs: [],
         readOnly: env.LIVE_ALLOW_WRITE === "1" ? false : true,
+        //La capa 3 NUNCA crea un plan: cuesta créditos de verdad, igual que la suite de
+        //X cuesta dinero. Se queda apagada aunque LIVE_ALLOW_WRITE esté encendido.
+        allowAiPlans: false,
         logLevel: "silent",
     };
     const server = createServer(createContext(config));

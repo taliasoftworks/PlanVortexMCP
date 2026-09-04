@@ -4,6 +4,81 @@ All notable changes to `planvortex-mcp` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] — 2026-09-04
+
+**PlanVortex writes the content, and until today the one surface built for agents was the only one
+that could not ask it to.**
+
+The server shipped twenty-five tools and not one of them reached the AI planner. The gap was easy to
+miss because a prompt papered over it: `weekly_plan` walked the model through the accounts, the
+calendar and the top posts, and then had the _model_ write the texts. That is a decent prompt and it
+is also what any MCP server can do with no product behind it. The one thing PlanVortex has that a
+generic tool does not — a planner that turns a theme, your own photos, an article or a connected
+shop's catalogue into a week of posts — was not reachable from here at all.
+
+It was left out on purpose, and the reason was good: creating a plan spends AI credits, and an agent
+that retries in a loop is the worst possible caller for an endpoint that bills. The plan was to wait
+for the protocol's own confirmation flow (elicitation, redesigned in the 2026-07-28 spec) and let
+the server ask before spending. Almost no client implements it yet, so waiting meant waiting
+indefinitely.
+
+The way out was noticing that the reason covers `create`, not reading. **The three read tools are
+always there; creating is switched on by a person, once, in the configuration file.** That is the
+same confirmation elicitation would ask for, moved to a place that exists today — and because the
+switch acts at registration, with it off `create_ai_plan` is not in `tools/list` at all, so nothing
+can call it.
+
+### Added
+
+- **`get_planner_templates`** — the five templates (`standard`, `from_images`, `from_text`,
+  `from_catalog`, `campaign`) with what each one costs, which options it accepts and how many source
+  items it takes. Read, never remembered: these are prices, and the one number that changes a user's
+  mind is that a template which does not generate images costs a fraction — a week of 7 posts with a
+  picture each is 519 credits on `standard` and 48 on `from_images`.
+- **`list_ai_plans`** and **`get_ai_plan`** — the plans and their state. `get_ai_plan` is what you
+  poll after creating one, and it hands back the **ids** of the drafts rather than a count, because
+  a count is two posts the model cannot open.
+- **`create_ai_plan`**, behind `PLANVORTEX_MCP_ALLOW_AI=1`. It does not return posts: it queues the
+  plan and returns the budget that was approved, and generation takes minutes.
+- **`PLANVORTEX_MCP_ALLOW_AI`**, in `server.json`, the README and `--help`.
+- `Context.resolveClient()`. The AI plan routes hang off **two** identifiers
+  (`/clients/:id/organizations/:id/ai_plans`) and are the only ones in this server that do. Asking
+  the model for an `id_client` it has no way to know is asking it to invent one, so it is resolved
+  from the same `/clients_organizations` call that already resolves the organization — no extra
+  request. A child organization is not in that map (it only carries root ones), so with a single
+  client it uses that one instead of claiming the organization does not exist.
+
+### Changed
+
+- **The `weekly_plan` prompt offers the planner before writing anything itself.** It used to
+  walk the model through the calendar and then have the MODEL write the texts, which is what
+  any MCP server can do with no product behind it. It now shows what a plan can be generated
+  from and what it costs, and only falls back to writing them by hand if the user prefers.
+- The server `INSTRUCTIONS` now say PlanVortex writes the content, that it costs credits and that
+  what comes out are drafts. It is the first thing a model reads, and the AI was absent from it.
+- Twenty-eight tools by default, twenty-nine with the AI switch, nineteen under
+  `PLANVORTEX_MCP_READ_ONLY`.
+- **`PLANVORTEX_MCP_READ_ONLY` wins over `PLANVORTEX_MCP_ALLOW_AI`.** A server declared read-only
+  does not create plans, whatever else is switched on.
+
+### Fixed
+
+- **The first message a new user reads no longer sends them to pay for something they already
+  have.** `CREDENTIALS_HELP` said "apps are part of the Custom plan", which was true until
+  02-09-2026, when `requireCustomPlan` came off the app routes and every plan got apps — 1 on Free,
+  2 on Basic, 5 on Pro, 10 on Custom. It is what a person sees when they start the server with no
+  credentials, so of all the places to be a plan behind, it was the worst one. Same sentence
+  corrected in the README, `server.json` and `manifest.json`; a test now asserts it does not come
+  back.
+
+### What is deliberately still missing
+
+- **`validate_ai_plan`.** Validating turns the whole generated week into scheduled posts in one
+  call, which is exactly the multiplier the original decision was worried about. What a plan
+  produces are ordinary drafts, so an agent that wants to schedule one already has
+  `update_publication` — one post at a time, with a person reading each text.
+- **Deleting or cancelling a plan.** This server still deletes nothing.
+
 ## [0.1.6] — 2026-09-03
 
 **Publications are unlimited**, and until today this server was the last place still telling agents

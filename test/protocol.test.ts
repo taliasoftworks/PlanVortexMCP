@@ -31,6 +31,9 @@ const EXPECTED_TOOLS = [
     "create_publication",
     "update_publication",
     "retry_publication",
+    "get_planner_templates",
+    "list_ai_plans",
+    "get_ai_plan",
     "upload_media",
     "list_comments",
     "get_comment_thread",
@@ -63,11 +66,11 @@ const WRITE_TOOLS = [
 ];
 
 describe("catálogo de herramientas", () => {
-    it("son veinticinco y salen en orden determinista", async () => {
+    it("son veintiocho y salen en orden determinista", async () => {
         const harness = await withServer();
         const listed = (await harness.client.listTools()).tools.map((tool) => tool.name);
         expect(listed).toEqual(EXPECTED_TOOLS);
-        expect(listed).toHaveLength(25);
+        expect(listed).toHaveLength(28);
         await harness.close();
     });
 
@@ -105,11 +108,11 @@ describe("catálogo de herramientas", () => {
         await harness.close();
     });
 
-    it("las dieciséis de lectura se declaran readOnly", async () => {
+    it("las diecinueve de lectura se declaran readOnly", async () => {
         const harness = await withServer();
         const tools = (await harness.client.listTools()).tools;
         const readOnly = tools.filter((tool) => tool.annotations?.readOnlyHint === true);
-        expect(readOnly).toHaveLength(16);
+        expect(readOnly).toHaveLength(19);
         for (const tool of readOnly) {
             expect(WRITE_TOOLS, tool.name).not.toContain(tool.name);
         }
@@ -131,7 +134,7 @@ describe("PLANVORTEX_MCP_READ_ONLY", () => {
     it("quita las nueve de escritura del listado, no las desactiva", async () => {
         const harness = await withServer({ readOnly: true });
         const listed = (await harness.client.listTools()).tools.map((tool) => tool.name);
-        expect(listed).toHaveLength(16);
+        expect(listed).toHaveLength(19);
         for (const name of WRITE_TOOLS) {
             expect(listed, name).not.toContain(name);
         }
@@ -169,7 +172,8 @@ describe("sin credenciales", () => {
         //configuró el servidor, en vez de que el proceso se muera a mitad de conversación.
         expect(isError(result)).toBe(true);
         expect(textOf(result)).toContain("PLANVORTEX_CLIENT_ID");
-        expect(textOf(result)).toContain("Custom plan");
+        //Y NO manda a pagar: la fase 2 abrió las apps a los cuatro planes (§ core.test.ts).
+        expect(textOf(result)).not.toContain("Custom plan");
         await harness.close();
     });
 });
@@ -259,7 +263,7 @@ describe("las dos eras del protocolo", () => {
         const message = (await modernCall("tools/list")) as {
             result?: { tools?: unknown[]; resultType?: string; ttlMs?: number; cacheScope?: string };
         };
-        expect(message.result?.tools).toHaveLength(25);
+        expect(message.result?.tools).toHaveLength(28);
         expect(message.result?.resultType).toBe("complete");
         //`ttlMs: 0` es el valor conservador por defecto del SDK, y con él el orden determinista de
         //`server.ts` no sirve de nada: el cliente vuelve a pedir el catálogo en cada vuelta.

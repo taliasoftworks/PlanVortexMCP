@@ -7,7 +7,7 @@
  * que aceptar —y que es correcta— es que cada endpoint que quiera exponer una herramienta tiene que
  * existir antes en la librería: es lo que evita una tercera copia de la API.
  */
-import { PlanVortex, type Organization } from "planvortex";
+import { PlanVortex, type ClientWithOrganizations, type Organization } from "planvortex";
 import type { Config } from "./config.js";
 import { CREDENTIALS_HELP, USER_AGENT } from "./config.js";
 import { ToolInputError } from "./errors.js";
@@ -31,6 +31,15 @@ export interface Context {
     resolveOrganization(explicit?: string | undefined): Promise<string>;
     /** Todas las organizaciones a las que llega esta app. Cacheadas. */
     listOrganizations(): Promise<Organization[]>;
+    /**
+     * El CLIENTE al que pertenece una organización, que sólo los planes de IA necesitan.
+     *
+     * Sus rutas cuelgan de los dos identificadores (`/clients/:id/organizations/:id/ai_plans`) y
+     * son las únicas de este servidor que lo hacen. En vez de pedirle al modelo un `id_client` que
+     * no tiene forma de conocer —y que se inventaría—, se saca de la misma llamada que ya resuelve
+     * la organización: `/clients_organizations` trae cada cliente con las suyas dentro.
+     */
+    resolveClient(idOrganization: string): Promise<string>;
 }
 
 export function createContext(config: Config): Context {
@@ -65,15 +74,52 @@ export function createContext(config: Config): Context {
     };
 
     let organizationsCache: Organization[] | undefined;
+    let clientsCache: ClientWithOrganizations[] | undefined;
     let resolved: string | undefined;
 
-    const listOrganizations = async (): Promise<Organization[]> => {
-        if (organizationsCache) return organizationsCache;
+    const loadClients = async (): Promise<ClientWithOrganizations[]> => {
+        if (clientsCache) return clientsCache;
         //Una sola llamada: `/clients_organizations` trae cada cliente con sus organizaciones raíz
         //dentro. Con `clients.list()` + `clients.organizations()` serían 1 + N.
         const page = await pv().clients.withOrganizations();
-        organizationsCache = page.data.flatMap((client) => client.organizations ?? []);
+        clientsCache = page.data;
+        return clientsCache;
+    };
+
+    const listOrganizations = async (): Promise<Organization[]> => {
+        if (organizationsCache) return organizationsCache;
+        const clients = await loadClients();
+        organizationsCache = clients.flatMap((client) => client.organizations ?? []);
         return organizationsCache;
+    };
+
+    /**
+     * De organización a cliente. Tres capas, y la tercera es la que importa.
+     *
+     * `/clients_organizations` sólo trae las organizaciones RAÍZ, así que una organización hija
+     * —que es un id perfectamente válido en todo lo demás de este servidor— no aparece en el mapa.
+     * Fallar ahí sería decirle al usuario que su organización no existe cuando lo que pasa es que
+     * no es raíz, así que con un solo cliente se usa ése: es el caso de casi todo el mundo y la
+     * respuesta correcta.
+     */
+    const resolveClient = async (idOrganization: string): Promise<string> => {
+        const clients = await loadClients();
+        const owner = clients.find((client) =>
+            (client.organizations ?? []).some((org) => org._id === idOrganization),
+        );
+        if (owner) return owner._id;
+        if (clients.length === 1 && clients[0]) return clients[0]._id;
+        if (clients.length === 0) {
+            throw new ToolInputError(
+                "This PlanVortex app does not reach any client, so there is nowhere to create an " +
+                    "AI plan. A person has to grant it access in the PlanVortex panel.",
+            );
+        }
+        const list = clients.map((client) => `- ${client.name}: ${client._id}`).join("\n");
+        throw new ToolInputError(
+            `Could not tell which client organization ${idOrganization} belongs to, and this app ` +
+                `reaches ${clients.length}. Pass id_client explicitly:\n${list}`,
+        );
     };
 
     /**
@@ -121,5 +167,6 @@ export function createContext(config: Config): Context {
         dedupe: new DedupeCache(),
         resolveOrganization,
         listOrganizations,
+        resolveClient,
     };
 }

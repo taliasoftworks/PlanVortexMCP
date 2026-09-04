@@ -16,6 +16,7 @@ import type { Context } from "./context.js";
 import { SERVER_NAME, VERSION } from "./config.js";
 import { registerCatalogResources } from "./resources/catalog.js";
 import { registerPrompts } from "./prompts/index.js";
+import { registerAiPlanTools } from "./tools/ai_plans.js";
 import { registerCatalogTools } from "./tools/catalog.js";
 import { registerCommentTools } from "./tools/comments.js";
 import { registerContextTools } from "./tools/context.js";
@@ -33,6 +34,11 @@ const INSTRUCTIONS = `PlanVortex manages twelve social networks from one place: 
 Threads, LinkedIn, TikTok, X, WhatsApp, YouTube, Google Business, Bluesky, Discord and Telegram.
 Eleven of them publish; Google Business does not — it is a listing that receives reviews, and it is
 here for the comment inbox alone.
+
+PlanVortex also WRITES the content. Its AI planner turns a theme, the user's own photos, an
+article or a connected shop's catalogue into a week of posts — see get_planner_templates. That
+costs the user AI credits, so creating a plan is off unless the server was started with
+PLANVORTEX_MCP_ALLOW_AI=1, and what it produces are drafts for a person to review.
 
 Two things to know before you start.
 
@@ -77,6 +83,10 @@ export function createServer(ctx: Context): McpServer {
     //adonde el modelo tiene que llegar solo cuando otra herramienta le dice que falta el id.
     registerContextTools(server, ctx);
     registerPublicationTools(server, ctx);
+    //Detrás de las publicaciones porque es lo que un plan produce, y no en el catálogo aunque
+    //`get_planner_templates` lo parezca: lo que ayuda al modelo a elegir es que las cuatro se
+    //vean juntas.
+    registerAiPlanTools(server, ctx);
     registerUploadTools(server, ctx);
     registerCommentTools(server, ctx);
     registerMessageTools(server, ctx);

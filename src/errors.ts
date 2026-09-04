@@ -260,9 +260,10 @@ function publicationAdvice(error: PlanVortexError): string {
  * Dentro del rango conviven cuatro cosas que se arreglan de maneras distintas, y sólo la última es
  * la configuración de este servidor:
  *
- * 1. **El plan no llega** (511, 515, 516, 517, 542). Es la trampa 15 llegando en caliente en vez de
- *    en el arranque: las apps son del plan Custom, pero un cliente puede tener credenciales válidas
- *    y un plan que no incluye lo que se acaba de pedir.
+ * 1. **El plan no llega** (511, 515, 516, 517, 542). Las apps ya no son del plan Custom —la fase 2
+ *    las abrió a los cuatro—, pero eso no elimina este caso: lo hace más frecuente. Un cliente en
+ *    el plan gratuito tiene credenciales perfectamente válidas y un plan que no incluye lo que se
+ *    acaba de pedir, y 542 sigue existiendo para lo que sí exige Custom.
  * 2. **Lo que una app no puede hacer nunca** (512, 519). No hay credencial que lo arregle: hace
  *    falta una persona con sesión (§ trampa 9).
  * 3. **Esa organización no es de esta app** (537).

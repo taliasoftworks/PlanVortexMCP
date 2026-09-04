@@ -1,9 +1,8 @@
 /**
  * El entorno entero, validado con zod, en un solo sitio.
  *
- * Un fallo aquí sale por `stderr` con una frase que explica qué falta, y esa frase dice lo de la
- * TRAMPA 15 —que las apps son exclusivas del plan Custom— porque un `401` a secas manda a esa
- * persona a abrir un ticket.
+ * Un fallo aquí sale por `stderr` con una frase que explica qué falta, porque un `401` a secas
+ * manda a esa persona a abrir un ticket.
  *
  * Lo que ese fallo hace DESPUÉS depende del transporte, y la diferencia se pagó con una ficha rota
  * en un directorio: unas credenciales que faltan terminan el proceso en `--http` y **no** en stdio.
@@ -14,7 +13,7 @@ import type { LogLevel } from "./log.js";
 
 /** Cómo se anuncia el servidor. La versión la sube el release, no la mano. */
 export const SERVER_NAME = "planvortex";
-export const VERSION = "0.1.6";
+export const VERSION = "0.2.0";
 
 /** El `User-Agent` con el que este servidor se distingue de la librería en los logs del API. */
 export const USER_AGENT = `planvortex-mcp/${VERSION}`;
@@ -23,9 +22,8 @@ export type TransportMode = "stdio" | "http";
 
 export interface Config {
     /**
-     * La app del plan Custom. **Opcionales en stdio**, y no por descuido: ver
-     * {@link CREDENTIALS_HELP}. Sin ellas el servidor arranca, lista sus herramientas y falla en la
-     * primera que salga a la red.
+     * La app. **Opcionales en stdio**, y no por descuido: ver {@link CREDENTIALS_HELP}. Sin ellas
+     * el servidor arranca, lista sus herramientas y falla en la primera que salga a la red.
      */
     clientId: string | undefined;
     clientSecret: string | undefined;
@@ -43,6 +41,23 @@ export interface Config {
     uploadDirs: string[];
     /** Apaga las nueve herramientas de escritura. */
     readOnly: boolean;
+    /**
+     * Enciende `create_ai_plan`, que es la única herramienta de este servidor que GASTA CRÉDITOS.
+     *
+     * Apagada por defecto, y al revés que {@link readOnly}: aquí no se apaga algo que existía, se
+     * enciende algo que no. El roadmap del servidor dejó los planes de IA fuera de la v1 con un
+     * motivo que sigue siendo cierto —«un agente en bucle es justo el peor cliente posible para un
+     * endpoint que factura»— y lo fiaba a la MRTR, que hoy casi ningún cliente implementa.
+     *
+     * Esto es la confirmación humana que la MRTR no da: la escribe una persona en su fichero de
+     * configuración, una vez, ANTES de que ningún agente arranque. Y como el gate actúa en el
+     * registro —igual que `readOnly`—, con él apagado la herramienta no está en `tools/list` y no
+     * hay forma de llamarla.
+     *
+     * Las tres de lectura (`get_planner_templates`, `list_ai_plans`, `get_ai_plan`) no dependen de
+     * esto: no facturan nada, y sin ellas el modelo no puede ni explicar lo que costaría.
+     */
+    allowAiPlans: boolean;
     logLevel: LogLevel;
 }
 
@@ -55,16 +70,23 @@ export class ConfigError extends Error {
 }
 
 /**
- * TRAMPA 15: las apps (`client_app`) son EXCLUSIVAS del plan Custom. Un cliente de otro plan ni
- * siquiera puede crear las credenciales que este servidor pide, y si el primer mensaje no lo dice,
- * esa persona se va a pasar la tarde buscando un fallo de configuración que no existe.
+ * LA TRAMPA 15 SE MURIÓ, y este texto es lo último que quedaba de ella.
+ *
+ * Decía que las apps (`client_app`) eran EXCLUSIVAS del plan Custom, y fue cierto hasta el
+ * 02-09-2026: la fase 2 de `cambios-planvortex.md` quitó `requireCustomPlan` de las rutas de apps
+ * y las abrió a los cuatro planes, el gratuito incluido. Lo que queda ahí es `requireAppQuota`
+ * —1 app en Free, 2 en Basic, 5 en Pro, 10 en Custom—, que es un cupo y no una puerta.
+ *
+ * Dejarlo escrito era peor que un dato viejo: es el PRIMER mensaje que lee quien instala esto sin
+ * credenciales, y mandaba a pagar a quien ya podía usarlo gratis — exactamente al revés de lo que
+ * la fase 2 abrió y de lo que la fase 11 va a salir a contar.
  */
 export const CREDENTIALS_HELP = [
     "planvortex-mcp needs PLANVORTEX_CLIENT_ID and PLANVORTEX_CLIENT_SECRET.",
     "",
-    "These come from an app in your PlanVortex account, and apps are part of the Custom plan.",
-    "Create one in the PlanVortex panel (Settings -> Apps) and pass the credentials in the env",
-    "block of your MCP client configuration. See https://planvortex.com/developers",
+    "These come from an app in your PlanVortex account, and every plan has apps — the free one",
+    "included. Create one in the PlanVortex panel (Settings -> Apps) and pass the credentials in",
+    "the env block of your MCP client configuration. See https://planvortex.com/developers",
 ].join("\n");
 
 const LOG_LEVELS = ["debug", "info", "warn", "error", "silent"] as const;
@@ -77,6 +99,7 @@ const EnvSchema = z.object({
     PLANVORTEX_MCP_UPLOAD_DIRS: z.string().optional(),
     PLANVORTEX_MCP_AUTH_TOKEN: z.string().min(1).optional(),
     PLANVORTEX_MCP_READ_ONLY: z.string().optional(),
+    PLANVORTEX_MCP_ALLOW_AI: z.string().optional(),
     PLANVORTEX_MCP_LOG_LEVEL: z.enum(LOG_LEVELS).optional(),
 });
 
@@ -189,6 +212,10 @@ export function loadConfig(env: NodeJS.ProcessEnv, argv: readonly string[]): Con
         authToken: value.PLANVORTEX_MCP_AUTH_TOKEN,
         uploadDirs: splitList(value.PLANVORTEX_MCP_UPLOAD_DIRS),
         readOnly: isTruthy(value.PLANVORTEX_MCP_READ_ONLY),
+        //Un `PLANVORTEX_MCP_READ_ONLY` encendido gana: es un servidor declarado de solo lectura, y
+        //`create_ai_plan` escribe. No se cruzan aquí sino en `defineTool`, donde se cruzan las dos
+        //banderas con una sola regla.
+        allowAiPlans: isTruthy(value.PLANVORTEX_MCP_ALLOW_AI),
         logLevel: value.PLANVORTEX_MCP_LOG_LEVEL ?? "info",
     };
 }
@@ -227,13 +254,14 @@ Flags:
   --port <port>    HTTP port (default 3000)
 
 Environment:
-  PLANVORTEX_CLIENT_ID        required — an app from your Custom plan
+  PLANVORTEX_CLIENT_ID        required — an app from your account (every plan has them)
   PLANVORTEX_CLIENT_SECRET    required — its secret
   PLANVORTEX_ORGANIZATION_ID  optional — the default organization
   PLANVORTEX_BASE_URL         optional — point at another PlanVortex deployment
   PLANVORTEX_MCP_UPLOAD_DIRS  optional — directories upload_media may read from
   PLANVORTEX_MCP_AUTH_TOKEN   required with --http outside loopback
   PLANVORTEX_MCP_READ_ONLY    optional — 1 disables every write tool
+  PLANVORTEX_MCP_ALLOW_AI     optional — 1 enables create_ai_plan, which spends AI credits
   PLANVORTEX_MCP_LOG_LEVEL    optional — debug | info | warn | error | silent
 
 Docs: https://planvortex.com/developers`;

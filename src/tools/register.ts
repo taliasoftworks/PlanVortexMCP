@@ -34,6 +34,14 @@ export interface ToolDefinition<I extends z.ZodType, O extends z.ZodType> {
     annotations: Annotations;
     /** Marca la herramienta como escritura: `PLANVORTEX_MCP_READ_ONLY` la quita del listado. */
     write?: boolean;
+    /**
+     * Marca la herramienta como GASTO: sólo se registra con `PLANVORTEX_MCP_ALLOW_AI` encendido.
+     *
+     * Es el inverso de {@link write}, y por eso son dos banderas y no un enum: `write` quita algo
+     * que por defecto está, `ai` añade algo que por defecto no. Una herramienta que factura no se
+     * enciende sola porque el servidor arranque.
+     */
+    ai?: boolean;
 }
 
 export function defineTool<I extends z.ZodType, O extends z.ZodType>(
@@ -43,6 +51,10 @@ export function defineTool<I extends z.ZodType, O extends z.ZodType>(
     handler: (args: z.infer<I>, ctx: Context) => Promise<CallToolResult>,
 ): void {
     if (definition.write && ctx.config.readOnly) return;
+    //Las dos banderas se cruzan aquí y en ningún otro sitio. Una herramienta `ai` es además
+    //`write`, así que `PLANVORTEX_MCP_READ_ONLY` ya la habría quitado arriba: el orden importa,
+    //porque un servidor declarado de sólo lectura no publica ni aunque le enciendan la IA.
+    if (definition.ai && !ctx.config.allowAiPlans) return;
 
     server.registerTool(
         definition.name,

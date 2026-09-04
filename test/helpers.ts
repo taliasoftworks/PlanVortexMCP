@@ -39,6 +39,7 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
         authToken: undefined,
         uploadDirs: [],
         readOnly: false,
+        allowAiPlans: false,
         logLevel: "silent",
         ...overrides,
     };

@@ -8,19 +8,19 @@
         "source": "github"
     },
     "websiteUrl": "https://planvortex.com/developers",
-    "version": "0.1.6",
+    "version": "0.2.0",
     "packages": [
         {
             "registryType": "npm",
             "registryBaseUrl": "https://registry.npmjs.org",
             "identifier": "planvortex-mcp",
-            "version": "0.1.6",
+            "version": "0.2.0",
             "runtimeHint": "npx",
             "transport": { "type": "stdio" },
             "environmentVariables": [
                 {
                     "name": "PLANVORTEX_CLIENT_ID",
-                    "description": "Client id of a PlanVortex app (Custom plan). Panel: Settings > Apps.",
+                    "description": "Client id of a PlanVortex app. Every plan has apps, the free one included. Panel: Settings > Apps.",
                     "isRequired": true
                 },
                 {
@@ -40,6 +40,10 @@
                 {
                     "name": "PLANVORTEX_MCP_READ_ONLY",
                     "description": "Set to 1 to remove the nine write tools."
+                },
+                {
+                    "name": "PLANVORTEX_MCP_ALLOW_AI",
+                    "description": "Set to 1 to add create_ai_plan, which generates a week of posts and spends AI credits."
                 }
             ]
         }

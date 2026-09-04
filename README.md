@@ -197,7 +197,7 @@ catalogue, the token cache, the multipart upload and the pagination already live
 
 ## Links
 
-- [PlanVortex for developers](https://planvortex.com/developers)
+- [PlanVortex for developers](https://planvortex.com/en/developers)
 - [`planvortex` for Node](https://www.npmjs.com/package/planvortex) · [`planvortex` for Python](https://pypi.org/project/planvortex/)
 - [Security policy](SECURITY.md) · [Changelog](CHANGELOG.md)
 

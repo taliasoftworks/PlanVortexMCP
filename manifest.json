@@ -2,7 +2,7 @@
     "manifest_version": "0.2",
     "name": "planvortex",
     "display_name": "PlanVortex",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "description": "Schedule posts, read comments and answer messages across twelve social networks.",
     "long_description": "The official MCP server for PlanVortex. Schedule and publish posts, read the comment and review inbox, answer private messages and pull stats across Facebook, Instagram, Threads, LinkedIn, TikTok, X, WhatsApp, YouTube, Google Business, Bluesky, Discord and Telegram. Needs a PlanVortex app, which every plan has — the free one included. This server never deletes anything.",
     "author": { "name": "Talia Softworks", "url": "https://planvortex.com" },

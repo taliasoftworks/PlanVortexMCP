@@ -1,6 +1,6 @@
 {
     "name": "planvortex-mcp",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "description": "Official MCP server for PlanVortex: let your AI assistant schedule posts, read the comment inbox and reply to messages across twelve social networks.",
     "keywords": [
         "mcp",
@@ -62,7 +62,7 @@
     "dependencies": {
         "@modelcontextprotocol/node": "^2.0.0",
         "@modelcontextprotocol/server": "^2.0.0",
-        "planvortex": "^0.7.0",
+        "planvortex": "^0.9.0",
         "zod": "^4.0.0"
     },
     "devDependencies": {

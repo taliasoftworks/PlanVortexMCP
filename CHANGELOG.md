@@ -4,6 +4,30 @@ All notable changes to `planvortex-mcp` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] — 2026-09-04
+
+**The client library underneath was two versions behind, and `^0.7.0` could not have caught up on
+its own.**
+
+npm treats `^0.7.0` on a 0.x package as `>=0.7.0 <0.8.0`, so every install since 03-09 kept
+pulling 0.7.0 while 0.8.0 sat published. What that cost was not features — it was error
+classification. 0.8.0 widened the families this server leans on to tell a model what went wrong:
+the publication range now reaches **979**, which is where the two rate brakes live (978, publishing
+too fast on this account; 979, that network's daily cap), and 0.8.0 also added **545** (the plan's
+API rate limit, a 429 with `Retry-After`), **546** (the email must be verified to create an app)
+and **1308** (no more apps fit). Until now all of those arrived as a bare error with no family, so
+the guidance handed to the model was generic exactly where it needed to be specific.
+
+### Changed
+
+- `planvortex` moves from `^0.7.0` to `^0.9.0`. Nothing in this server used the plan keys that
+  0.9.0 removes (`users`, `artificial_inteligence`, `stats`, `whatsapp`), so there is no code
+  change — only the error families and the corrected documentation that come with it.
+- Every link to the developer site now points at `/en/developers` instead of `/developers`. The
+  site only auto-detects language at its root, so the unprefixed path served Spanish to everyone
+  arriving from npm or from the MCP registry — and always to crawlers, which send no
+  `Accept-Language`.
+
 ## [0.2.0] — 2026-09-04
 
 **PlanVortex writes the content, and until today the one surface built for agents was the only one

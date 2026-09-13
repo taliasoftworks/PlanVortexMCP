@@ -56,7 +56,7 @@
         "test:coverage": "vitest run --coverage",
         "test:live": "vitest run --config vitest.live.config.ts",
         "inspector": "npx -y @modelcontextprotocol/inspector node dist/cli.js",
-        "bundle": "npx -y @anthropic-ai/mcpb pack",
+        "bundle": "npx -y @anthropic-ai/mcpb pack . planvortex-mcp.mcpb",
         "prepublishOnly": "npm run check:version && npm run check:registry && npm run build"
     },
     "dependencies": {

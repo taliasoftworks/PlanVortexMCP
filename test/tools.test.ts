@@ -448,7 +448,8 @@ describe("trampas 5 y 13 — errores que el modelo pueda usar, y validar antes d
                 HttpResponse.json(
                     {
                         code: 980,
-                        message: "The PlanVortex bot is not in this Slack channel, it has to be invited with /invite",
+                        message:
+                            "The PlanVortex bot is not in this Slack channel, it has to be invited with /invite",
                     },
                     { status: 400 },
                 ),

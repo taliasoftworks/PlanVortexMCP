@@ -174,9 +174,11 @@ live("los números", () => {
 });
 
 live("el catálogo", () => {
-    it("get_social_limits trae las once redes", async () => {
+    it("get_social_limits trae las trece redes", async () => {
         const text = await call("get_social_limits");
-        for (const network of ["instagram", "bluesky", "telegram", "linkedin"]) {
+        //`slack` entre ellas: el conformance del servidor obliga a que TODA red de ALLOWED_RRSS
+        //tenga su entrada, asi que una red que falte aqui es un fallo del servidor, no del spec.
+        for (const network of ["instagram", "bluesky", "telegram", "slack", "linkedin"]) {
             expect(text, network).toContain(network);
         }
     });

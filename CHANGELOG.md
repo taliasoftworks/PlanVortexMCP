@@ -44,6 +44,7 @@ model with no family and therefore the generic advice.
   publishes, it reports reactions, and that is the whole of it. Each channel is a separate account.
   A model that assumes a thirteenth network behaves like the other twelve promises the user a
   comment inbox that does not exist.
+
 ## [0.3.0] — 2026-09-04
 
 **The client library underneath was two versions behind, and `^0.7.0` could not have caught up on

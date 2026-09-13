@@ -275,8 +275,9 @@ export function projectTopPublication(top: TopPublication): TopPublicationView {
  * Quita las claves que no traen número.
  *
  * TRAMPA 14, y es la razón de que esta función exista en vez de volcar el objeto: **las métricas
- * que faltan no son ceros**. Telegram y Bluesky no tienen impresiones ni alcance en ninguna parte
- * de su API; Google Business no publica. Si el hueco se rellena con `0`, el modelo dirá que el post
+ * que faltan no son ceros**. Telegram, Bluesky y Slack no tienen impresiones ni alcance en ninguna
+ * parte de su API —y Slack sólo tiene reacciones—; Google Business no publica. Si el hueco se
+ * rellena con `0`, el modelo dirá que el post
  * no lo vio nadie, y eso es peor que no decir nada. Es la misma decisión que ya tomó la pantalla de
  * estadísticas del panel.
  */

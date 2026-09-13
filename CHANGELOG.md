@@ -4,6 +4,46 @@ All notable changes to `planvortex-mcp` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] — 2026-09-13
+
+**Slack is the thirteenth network, and it arrives with the same shape of bug 0.3.0 shipped to fix:
+a `^0.x` pin that cannot catch up on its own.**
+
+npm reads `^0.9.0` on a 0.x package as `>=0.9.0 <0.10.0`, so every install would have kept pulling
+0.9.0 while 0.10.0 sat published — and 0.10.0 is the release that widens the publication family to
+**986**, which is where Slack's own codes live. Without the bump, every Slack failure reached the
+model with no family and therefore the generic advice.
+
+### Fixed
+
+- **Slack's 980 no longer tells a model to rewrite the post.** With the family corrected, 980-986
+  land in the publication range, whose default guidance is "this is a problem with the post, fix
+  the text or the media". For 980 — **the commonest error on that network**: the PlanVortex app is
+  not in the channel — that is exactly backwards. Nothing about the post is wrong, retrying with a
+  different text fails identically, and what unblocks it is a **person** typing
+  `/invite @PlanVortex` inside the channel, which on a private one is the only way at all because
+  Slack has no API for an app to join one. 985 (the channel is archived or gone) gets its own
+  advice for the same reason, and **984** — Slack's 429 with the retry window exhausted — now goes
+  through the rate-brake path with 978, 979 and 545, because it is transient and the generic
+  advice would have had the model rewriting a post that was fine. Two tests pin the sentences.
+
+### Changed
+
+- `planvortex` moves from `^0.9.0` to `^0.10.0`.
+- **The network count, in the six places it is written by hand**: `package.json`,
+  `manifest.json` (both `description` and `long_description`, which is what the Claude Desktop
+  directory shows), `server.json`, `README.md` and the `INSTRUCTIONS` the MCP client reads before
+  anything else. Twelve networks became thirteen, and eleven that publish became twelve.
+- **The tool descriptions that enumerate networks where the capability is uneven**, because Slack
+  is absent from most of them: `list_conversations` (it has no private messages — a bot cannot
+  start a conversation), `get_comment_thread` and `get_social_capabilities` (it has no comment
+  inbox at all), and the missing-metrics note on the stats tools, where Slack joins Telegram and
+  Bluesky as a network with **no impressions and no reach anywhere** — and is the most extreme of
+  the three, because reactions is the only metric it has.
+- **`INSTRUCTIONS` now says what Slack is not.** It is a team channel, not an audience: it
+  publishes, it reports reactions, and that is the whole of it. Each channel is a separate account.
+  A model that assumes a thirteenth network behaves like the other twelve promises the user a
+  comment inbox that does not exist.
 ## [0.3.0] — 2026-09-04
 
 **The client library underneath was two versions behind, and `^0.7.0` could not have caught up on

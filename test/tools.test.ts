@@ -25,7 +25,9 @@ function organizations(...items: object[]) {
 }
 
 const LIMITS = {
-    characters: { instagram: 2200, twitter: 280, bluesky: 300, linkedin: 3000 },
+    //`slack` esta aqui porque las claves de `characters` son lo que la herramienta usa para
+    //saber que redes EXISTEN: sin ella, create_publication rechaza la red antes de llamar.
+    characters: { instagram: 2200, twitter: 280, bluesky: 300, linkedin: 3000, slack: 4000 },
     max_post_bytes: { bluesky: 3000 },
     title_characters: { instagram: 0, youtube: 100 },
     total_images: { instagram: 10, twitter: 4 },
@@ -431,6 +433,66 @@ describe("trampas 5 y 13 — errores que el modelo pueda usar, y validar antes d
         const text = textOf(result);
         expect(text).toContain("NOT a plan limit");
         expect(text).toContain("tomorrow");
+        await harness.close();
+    });
+    it("el 980 de Slack manda invitar a la app, no reescribir el post", async () => {
+        //TRAMPA DE SLACK, y es el error mas comun de esa red entera: la app no esta en el canal.
+        //Cae en la familia `publication` —el rango llega al 986 desde planvortex 0.10.0— y el
+        //consejo por defecto de esa familia es «esto es un problema del post, corrige el texto».
+        //Aqui no hay nada que corregir: hasta que una PERSONA escriba `/invite` dentro de Slack,
+        //cualquier reintento falla igual. Un modelo que lea el generico reescribe en bucle.
+        api.use(
+            organizations(ORG_A),
+            limitsHandler,
+            http.post(`${BASE_URL}/organizations/org-a/accounts/acc-1/publish`, () =>
+                HttpResponse.json(
+                    {
+                        code: 980,
+                        message: "The PlanVortex bot is not in this Slack channel, it has to be invited with /invite",
+                    },
+                    { status: 400 },
+                ),
+            ),
+        );
+        const harness = await withServer();
+        const result = await harness.client.callTool({
+            name: "create_publication",
+            arguments: { id_account: "acc-1", social_network: "slack", text: "hola" },
+        });
+        expect(isError(result)).toBe(true);
+        const text = textOf(result);
+        expect(text).toContain("/invite @PlanVortex");
+        expect(text).toContain("Do not retry");
+        //Lo que NO puede decir: que el problema sea el post.
+        expect(text).not.toContain("problem with the post itself");
+        await harness.close();
+    });
+
+    it("el 984 de Slack es esperar, no reescribir", async () => {
+        //El 429 de Slack con la ventana de reintentos agotada. Es TRANSITORIO y cae en
+        //`publication`, o sea en el mismo consejo generico que el 980. Va por delante de la
+        //familia, como el 978 y el 979.
+        api.use(
+            organizations(ORG_A),
+            limitsHandler,
+            http.post(`${BASE_URL}/organizations/org-a/accounts/acc-1/publish`, () =>
+                HttpResponse.json(
+                    {
+                        code: 984,
+                        message: "Slack is rate limiting this workspace and the retry window was exhausted",
+                    },
+                    { status: 400 },
+                ),
+            ),
+        );
+        const harness = await withServer();
+        const result = await harness.client.callTool({
+            name: "create_publication",
+            arguments: { id_account: "acc-1", social_network: "slack", text: "hola" },
+        });
+        const text = textOf(result);
+        expect(text).toContain("TRANSIENT");
+        expect(text).not.toContain("problem with the post itself");
         await harness.close();
     });
     it("un 520 dice QUÉ permisos faltan", async () => {

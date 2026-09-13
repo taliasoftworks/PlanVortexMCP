@@ -68,8 +68,9 @@ export function registerCatalogTools(server: McpServer, ctx: Context): void {
                 "What each network can actually do — publish, private messages, comments, " +
                 "products, webhooks — plus the comment moderation matrix: whether a reply, a hide " +
                 "or a delete is possible there. Not every network does everything: WhatsApp has " +
-                "no wall, Google Business does not publish at all, and LinkedIn cannot hide a " +
-                "comment. Check here before promising the user something.",
+                "no wall, Google Business does not publish at all, LinkedIn cannot hide a " +
+                "comment, and Slack publishes but has neither comments nor private messages. " +
+                "Check here before promising the user something.",
             inputSchema: z.object({}),
             annotations: { readOnlyHint: true, openWorldHint: false },
         },

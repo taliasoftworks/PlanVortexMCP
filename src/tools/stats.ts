@@ -44,9 +44,10 @@ const METRIC_NAME = z.enum([
  * un modelo que no la lee no sabe distinguir «cero» de «esta red no lo mide».
  */
 const MISSING_METRICS_NOTE =
-    "Metrics a network does not measure are left out rather than reported as zero. Telegram and " +
-    "Bluesky have no impressions or reach at all — their engagement is measured against followers " +
-    "— so an absent key means 'not measured here', never 'nobody saw it'.";
+    "Metrics a network does not measure are left out rather than reported as zero. Telegram, " +
+    "Bluesky and Slack have no impressions or reach at all — their engagement is measured against " +
+    "followers, and on Slack the only metric there is at all is reactions — so an absent key " +
+    "means 'not measured here', never 'nobody saw it'.";
 
 export function registerStatsTools(server: McpServer, ctx: Context): void {
     defineTool(

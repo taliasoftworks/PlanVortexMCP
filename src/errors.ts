@@ -83,18 +83,20 @@ function headline(error: PlanVortexError): string {
 }
 
 function advice(error: PlanVortexError): string {
-    //Los dos frenos de ritmo van por delante de la familia, y a proposito. Nacieron por encima
-    //del 960 —el techo que tenia el rango `publication` cuando las publicaciones eran un cupo—,
-    //asi que con una version de `planvortex` anterior llegan SIN familia y caerian en el consejo
+    //Los frenos de ritmo van por delante de la familia, y a proposito. Nacieron por encima del
+    //960 —el techo que tenia el rango `publication` cuando las publicaciones eran un cupo—, asi
+    //que con una version de `planvortex` anterior llegan SIN familia y caerian en el consejo
     //generico. Y el generico es justo el contrario del bueno: aqui no hay nada que corregir en el
-    //post, hay que esperar.
-    if (error.code === 978 || error.code === 979 || error.code === 545) {
+    //post, hay que esperar. El 984 es el mismo caso una red mas tarde: es el 429 de Slack con la
+    //ventana de reintentos agotada, y cae en `publication` desde que el rango llega al 986.
+    if (error.code === 978 || error.code === 979 || error.code === 545 || error.code === 984) {
         return rateAdvice(error);
     }
     switch (error.family) {
         case "publication":
-            //900-979, y no todo lo que hay dentro es «arregla el post»: el rango mete también un
-            //id que no existe, un post ya enviado y dos topes de plan. Ver {@link publicationAdvice}.
+            //900-986, y no todo lo que hay dentro es «arregla el post»: el rango mete también un
+            //id que no existe, un post ya enviado, un tope de cuenta y los dos de Slack que
+            //necesitan a una persona. Ver {@link publicationAdvice}.
             return publicationAdvice(error);
         case "plan_limit":
             //1300-1408. NO se arregla reintentando, y si no se dice con todas las letras el modelo
@@ -162,7 +164,7 @@ function advice(error: PlanVortexError): string {
 }
 
 /**
- * El rango `publication` (900-979), desglosado por la misma razón que el de `auth` y descubierto
+ * El rango `publication` (900-986), desglosado por la misma razón que el de `auth` y descubierto
  * igual: la capa 3 pidió las estadísticas de una publicación borrada y el servidor contestó
  * «esto es un problema del post, corrige el texto o los ficheros y vuelve a llamar». No hay texto
  * que corregir cuando el identificador no existe.
@@ -176,13 +178,13 @@ function advice(error: PlanVortexError): string {
  *   acorte el texto. El **924** que había aquí era el cupo MENSUAL del plan, y el servidor lo
  *   retiró el 02-09-2026 al hacer las publicaciones ilimitadas.
  *
- * Y los dos frenos de ritmo, 978 y 979, ni siquiera llegan hasta aquí: los atiende
+ * Y los frenos de ritmo, 978, 979 y 984, ni siquiera llegan hasta aquí: los atiende
  * {@link rateAdvice} antes de mirar la familia.
  */
 /**
- * Los TRES frenos de ritmo: los dos de publicación —lo único que puede parar un lote desde que las
- * publicaciones son ilimitadas (02-09-2026)— y el de la API entera, que llegó al abrirla a todos
- * los planes.
+ * Los CUATRO frenos de ritmo: los dos de publicación —lo único que puede parar un lote desde que
+ * las publicaciones son ilimitadas (02-09-2026)—, el de la API entera, que llegó al abrirla a todos
+ * los planes, y el 429 de Slack (984), que es por método y por workspace.
  *
  * Y son el caso en que el consejo importa mas que el mensaje: los dos son TRANSITORIOS —esperar los
  * arregla— mientras que todo lo que los rodea en el catalogo no lo es. Un modelo al que se le dice
@@ -199,6 +201,15 @@ function rateAdvice(error: PlanVortexError): string {
             "asking for a new token changes nothing. Wait the seconds the `Retry-After` header " +
             "says and continue; if it keeps happening, space the calls out or the account needs a " +
             "bigger plan. Do not retry in a loop."
+        );
+    }
+    if (error.code === 984) {
+        return (
+            "Slack is rate limiting this workspace and the retry window ran out. This is TRANSIENT " +
+            "and it has nothing to do with the post: Slack counts per method and per workspace, so " +
+            "another channel of the same workspace will hit it too. Do not rewrite anything and do " +
+            "not retry immediately — wait a minute and send the rest spaced out, or schedule them " +
+            "with a publish_date."
         );
     }
     if (error.code === 979) {
@@ -238,9 +249,27 @@ function publicationAdvice(error: PlanVortexError): string {
                 "Publications themselves are unlimited on every plan: this is not something the " +
                 "user fixes by paying more."
             );
+        //SLACK. Los dos que no se arreglan tocando el post, y el 980 es el error mas comun de esa
+        //red entera: la app no esta en el canal. Reintentar con otro texto falla igual, y lo que
+        //desbloquea es que una PERSONA escriba un comando dentro de Slack.
+        case 980:
+            return (
+                "The PlanVortex app is not in that Slack channel, and nothing about the post is " +
+                "wrong: retrying with different text or media will fail exactly the same way. Do " +
+                "not retry. Somebody with access to that channel has to type `/invite @PlanVortex` " +
+                "inside it — on a private channel that is the only way, because Slack has no API " +
+                "for an app to join one. Tell the user that, then publish again."
+            );
+        case 985:
+            return (
+                "That Slack channel is archived or no longer exists, so nothing can be published " +
+                "to it. Do not retry: this does not fix itself. Either somebody unarchives the " +
+                "channel in Slack, or the account is reconnected to a different one. Call " +
+                "list_accounts to pick another."
+            );
         //Lo demás sí es el post: sobran caracteres, la red no admite ese tipo de fichero, falta un
-        //título. Lo que hay que cambiar lo dice el propio mensaje del catálogo, que para eso lo
-        //escribió alguien.
+        //título, el fichero pesa demasiado para Slack (983) o la subida se cayó (986). Lo que hay
+        //que cambiar lo dice el propio mensaje del catálogo, que para eso lo escribió alguien.
         default:
             return (
                 "This is a problem with the post itself, and the message above says what to change. " +

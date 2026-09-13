@@ -4,9 +4,9 @@
 
 The official [Model Context Protocol](https://modelcontextprotocol.io) server for
 [PlanVortex](https://planvortex.com). It lets an AI assistant — Claude Desktop, Claude Code, Cursor,
-VS Code — schedule posts, read the comment inbox and answer private messages across twelve social
+VS Code — schedule posts, read the comment inbox and answer private messages across thirteen social
 networks: Facebook, Instagram, Threads, LinkedIn, TikTok, X, WhatsApp, YouTube, Google Business,
-Bluesky, Discord and Telegram.
+Bluesky, Discord, Telegram and Slack.
 
 > **You need a PlanVortex app, and every plan has them — the free one included.**
 > The server authenticates with a `client_id` and a `client_secret` that you create in the

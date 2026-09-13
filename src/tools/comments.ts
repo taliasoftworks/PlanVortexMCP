@@ -100,7 +100,8 @@ export function registerCommentTools(server: McpServer, ctx: Context): void {
                 "stored — the network wins. Pass id_publication for a post, or id_account for a " +
                 "Google Business listing, whose reviews hang off the listing and not off any post. " +
                 "On X this costs one credit per reply returned. Telegram has no live read: its " +
-                "comments only exist in the PlanVortex inbox, so use list_comments there.",
+                "comments only exist in the PlanVortex inbox, so use list_comments there. Slack " +
+                "has no comment inbox at all — a Slack thread is not read by PlanVortex.",
             inputSchema: z.object({
                 id_publication: z.string().describe("The post whose thread to read.").optional(),
                 id_account: z

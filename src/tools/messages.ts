@@ -38,7 +38,7 @@ export function registerMessageTools(server: McpServer, ctx: Context): void {
                 "Open private conversations on one account: who it is with, when they last wrote " +
                 "and how many of their messages are unread. Only networks with chat have this — " +
                 "Facebook, Instagram, WhatsApp, Twitter and Bluesky. Discord, Telegram, Threads, " +
-                "LinkedIn, TikTok, YouTube and Google Business do not.",
+                "LinkedIn, TikTok, YouTube, Google Business and Slack do not.",
             inputSchema: z.object({
                 id_account: z.string().describe("The account whose inbox to read."),
                 id_organization: OrganizationArg,

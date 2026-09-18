@@ -4,6 +4,37 @@ All notable changes to `planvortex-mcp` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] — 2026-09-17
+
+**A model can now answer «which of my AI plans worked?» without stitching it together by hand.**
+
+### Added
+
+- **`get_ai_plan_results`**, a read tool, so it is listed with or without
+  `PLANVORTEX_MCP_ALLOW_AI`. It returns what every plan achieved with what it published, and the
+  aggregate per template. Three sentences in its answer are there because a model gets each of them
+  wrong without being told:
+    - **`ranked: false` is not a bad plan**, it is a plan with too few measured posts to compare.
+      Plans are ranked by interactions per _measured_ post — the total would just reward the plans
+      with more accounts — and only those with at least three measured posts compete.
+    - **`maturing: true` means the numbers are still moving**, so comparing that plan with last
+      month's is unfair to the new one.
+    - **A missing metric is not a zero**, as in every other number this server returns.
+    - **Being first is not being good.** Every plan carries `vs_your_average` — its interactions per
+      post over the organization's own posts on the same networks, where `1x` is the usual level —
+      and the note says the first plan in the ranking can still be below `1x`.
+
+        The range filters on the **week the plan published in**, not on when it was created, and the
+        empty answer says so: otherwise a plan created today for next week reads as a plan that did
+        nothing.
+
+### Changed
+
+- **`planvortex` goes to `^0.11.0`**, the release that adds `aiPlans.results()`. It is the same
+  `^0.x` trap 0.4.0 described: `^0.10.0` would never pick it up on its own. **Publish
+  `planvortex@0.11.0` first and refresh `package-lock.json` before tagging this one** — until then
+  the lock still pins 0.10.0, which has no such method.
+
 ## [0.4.0] — 2026-09-13
 
 **Slack is the thirteenth network, and it arrives with the same shape of bug 0.3.0 shipped to fix:

@@ -1,5 +1,5 @@
 /**
- * Los planes de IA: cuatro herramientas, y la única de este servidor que GASTA DINERO.
+ * Los planes de IA: cinco herramientas, y la única de este servidor que GASTA DINERO.
  *
  * POR QUÉ ESTÁN AQUÍ, DESPUÉS DE HABER ESTADO FUERA A PROPÓSITO
  *
@@ -11,8 +11,9 @@
  * La fase 10 de `cambios-planvortex.md` pide lo contrario, y las dos cosas caben: el motivo cubre
  * `create`, no la lectura. Así que
  *
- *  - **las tres de lectura entran siempre.** No facturan nada, y sin ellas el modelo no puede
- *    siquiera explicar lo que costaría un plan antes de proponerlo.
+ *  - **las cuatro de lectura entran siempre.** No facturan nada, y sin ellas el modelo no puede
+ *    siquiera explicar lo que costaría un plan antes de proponerlo, ni cuál de los que ya hizo
+ *    funcionó (`get_ai_plan_results`).
  *  - **`create_ai_plan` necesita `PLANVORTEX_MCP_ALLOW_AI=1`**, que es la confirmación humana que
  *    la MRTR no da: la escribe una persona en su fichero de configuración, una vez, antes de que
  *    ningún agente arranque. Y como el gate actúa en el REGISTRO, apagado no está en `tools/list`.
@@ -30,10 +31,10 @@
  */
 import * as z from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
-import type { AiPlanCreateRequest } from "planvortex";
+import type { AiPlanCreateRequest, AiPlanResult } from "planvortex";
 import type { Context } from "../context.js";
 import { toolOk, ToolInputError } from "../errors.js";
-import { asLines, clampLimit, paginationNote, snippet } from "../format/project.js";
+import { asLines, clampLimit, compactNumbers, paginationNote, snippet } from "../format/project.js";
 import { fingerprint } from "../dedupe.js";
 import { defineTool } from "./register.js";
 
@@ -102,6 +103,42 @@ function projectPlan(plan: {
         credits_spent: plan.credits_spent,
         creation_date: plan.creation_date,
         archived: Boolean(plan.archived_date),
+    };
+}
+
+/**
+ * La nota de los resultados. Va SIEMPRE: los dos errores que evita —leer un plan sin `ranked` como
+ * «el peor» y leer una métrica ausente como un cero— son justo los que un modelo comete sin ella.
+ */
+const RESULTS_NOTE =
+    "vs_your_average compares each plan with the organization's own posts on the same networks: 1x is " +
+    "its usual level, so the first plan in the ranking can still be below 1x. " +
+    "ranked false means too few measured posts to compare, not a bad plan. maturing true means the " +
+    "numbers are still moving. Metrics a network does not measure are left out, never zero. " +
+    "credits_per_engagement is absent when filtering by network, because the cost is the whole plan's.";
+
+/**
+ * Un plan con sus resultados, proyectado. Las métricas pasan por `compactNumbers` y viajan como
+ * JSON en una línea: es lo mismo que hace `get_top_publications`, y por lo mismo.
+ */
+function projectPlanResult(result: AiPlanResult): Record<string, unknown> {
+    return {
+        id: result.id_ai_plan,
+        template: result.template,
+        prompt: snippet(result.prompt),
+        week_start: result.week_start,
+        networks: result.social_networks.join(", "),
+        published_posts: result.publications.published,
+        measured_posts: result.publications.measured,
+        engagement_per_post: result.engagement_per_publication,
+        //El cociente frente a sus propias publicaciones: es lo que dice si el plan es bueno, no sólo el primero
+        vs_your_average:
+            result.engagement_vs_average === undefined ? undefined : `${result.engagement_vs_average}x`,
+        credits_spent: result.credits_spent,
+        credits_per_engagement: result.credits_per_engagement,
+        ranked: result.ranked,
+        maturing: result.maturing,
+        metrics: JSON.stringify(compactNumbers(result.metrics)),
     };
 }
 
@@ -253,6 +290,108 @@ export function registerAiPlanTools(server: McpServer, ctx: Context): void {
                 ai_plan: row as unknown as Record<string, unknown>,
                 publication_ids: publicationIds,
             });
+        },
+    );
+
+    defineTool(
+        server,
+        ctx,
+        {
+            name: "get_ai_plan_results",
+            title: "Compare the results of AI plans",
+            description:
+                "Which AI plans worked, and which template works best — the tool for 'which of my " +
+                "AI plans did best?'. Each plan comes with what its published posts achieved, plus " +
+                "an aggregate per template. Plans are ranked by interactions per MEASURED post, not " +
+                "by the total (the total just rewards bigger plans), and only plans marked " +
+                "ranked (at least 3 measured posts) compete; maturing means its numbers are still " +
+                "moving, so say so before comparing it with an older plan. The range filters on the " +
+                "week the plan published in. To compare plans fairly across networks, pass one " +
+                "social_network. Missing metrics are not zeros.",
+            inputSchema: z.object({
+                id_organization: OrganizationArg,
+                from_date: z.string().describe("ISO 8601 date. Defaults to the last 30 days.").optional(),
+                to_date: z.string().describe("ISO 8601 date.").optional(),
+                sort: z
+                    .enum([
+                        "engagement_per_publication",
+                        "engagement",
+                        "impressions",
+                        "reach",
+                        "credits_per_engagement",
+                        "credits_spent",
+                        "week_start",
+                    ])
+                    .describe(
+                        "Defaults to engagement_per_publication. credits_per_engagement goes cheapest first.",
+                    )
+                    .optional(),
+                template: z
+                    .enum(["standard", "from_images", "from_text", "from_catalog", "campaign"])
+                    .describe("Only plans generated from this template.")
+                    .optional(),
+                social_network: z
+                    .array(z.string())
+                    .describe("Recompute each plan with only its posts on these networks.")
+                    .optional(),
+                limit: z.number().int().min(1).max(50).optional(),
+                offset: z.number().int().min(0).optional(),
+            }),
+            annotations: { readOnlyHint: true, openWorldHint: false },
+        },
+        async (args, context) => {
+            const idOrganization = await context.resolveOrganization(args.id_organization);
+            const idClient = await context.resolveClient(idOrganization);
+            const results = await context.pv.aiPlans.results(idClient, idOrganization, {
+                ...(args.from_date === undefined ? {} : { from_date: args.from_date }),
+                ...(args.to_date === undefined ? {} : { to_date: args.to_date }),
+                ...(args.sort === undefined ? {} : { sort: args.sort }),
+                ...(args.template === undefined ? {} : { template: args.template }),
+                ...(args.social_network === undefined ? {} : { social_network: args.social_network }),
+                limit: clampLimit(args.limit),
+                ...(args.offset === undefined ? {} : { offset: args.offset }),
+            });
+
+            if (results.total === 0) {
+                return toolOk(
+                    "No AI plan published anything in that range. A plan counts from the week it " +
+                        "publishes in, not from when it was created.",
+                );
+            }
+
+            const plans = results.ai_plans.map(projectPlanResult);
+            const templates = results.by_template.map((group) => ({
+                template: group.template,
+                plans: group.plans,
+                measured_posts: group.publications.measured,
+                engagement_per_post: group.engagement_per_publication,
+                vs_your_average:
+                    group.engagement_vs_average === undefined ? undefined : `${group.engagement_vs_average}x`,
+                credits_per_engagement: group.credits_per_engagement,
+            }));
+            const totals = results.totals;
+            const header = asLines([
+                {
+                    plans: totals.plans,
+                    ranked_plans: totals.ranked_plans,
+                    measured_posts: totals.publications.measured,
+                    engagement_per_post: totals.engagement_per_publication,
+                    vs_your_average:
+                        totals.engagement_vs_average === undefined
+                            ? undefined
+                            : `${totals.engagement_vs_average}x`,
+                    credits_per_engagement: totals.credits_per_engagement,
+                },
+            ]);
+            return toolOk(
+                [
+                    header,
+                    `By template:\n\n${asLines(templates)}`,
+                    `Plans:\n\n${asLines(plans)}`,
+                    paginationNote(plans.length, results.total, args.offset ?? 0),
+                    RESULTS_NOTE,
+                ].join("\n\n"),
+            );
         },
     );
 

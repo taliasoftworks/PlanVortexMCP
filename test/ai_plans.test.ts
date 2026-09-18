@@ -70,11 +70,11 @@ describe("el gate de PLANVORTEX_MCP_ALLOW_AI", () => {
         await harness.close();
     });
 
-    it("con el gate encendido sí está, y son veintinueve", async () => {
+    it("con el gate encendido sí está, y son treinta", async () => {
         const harness = await withServer({ allowAiPlans: true });
         const listed = (await harness.client.listTools()).tools.map((tool) => tool.name);
         expect(listed).toContain("create_ai_plan");
-        expect(listed).toHaveLength(29);
+        expect(listed).toHaveLength(30);
         await harness.close();
     });
 
@@ -251,6 +251,102 @@ describe("el ciclo de un plan", () => {
             arguments: { id_ai_plan: "plan-1" },
         });
         expect(textOf(result)).toContain("Poll this tool again");
+        await harness.close();
+    });
+});
+
+describe("los resultados de los planes", () => {
+    const GROUP = {
+        plans: 2,
+        ranked_plans: 1,
+        publications: { published: 10, measured: 8 },
+        metrics: { engagement: 400 },
+        engagement_per_publication: 50,
+        credits_spent: 567,
+        credits_per_engagement: 1.42,
+    };
+    const RESULT = {
+        id_ai_plan: "plan-1",
+        id_organization: "org-a",
+        prompt: "Pan de masa madre, horno de leña, barrio",
+        template: "from_images",
+        state: "validated",
+        week_start: "2026-08-24T00:00:00.000Z",
+        creation_date: "2026-08-23T09:00:00.000Z",
+        accounts: 1,
+        social_networks: ["instagram"],
+        credits_spent: 48,
+        publications: { total: 7, published: 7, measured: 7, scheduled: 0, failed: 0 },
+        metrics: { engagement: 350 },
+        engagement_per_publication: 50,
+        expected_engagement_per_publication: 31.25,
+        engagement_vs_average: 1.6,
+        ranked: true,
+        maturing: false,
+    };
+
+    it("es de lectura: está en el listado sin encender el gate", async () => {
+        const harness = await withServer();
+        const listed = (await harness.client.listTools()).tools.map((tool) => tool.name);
+        expect(listed).toContain("get_ai_plan_results");
+        await harness.close();
+    });
+
+    it("dice qué plan y qué plantilla funcionan, y avisa de que ausente no es cero", async () => {
+        let query = new URLSearchParams();
+        api.use(
+            organizations(ORG_A),
+            http.get(`${BASE_URL}/clients/client-1/organizations/org-a/ai_plans/results`, ({ request }) => {
+                query = new URL(request.url).searchParams;
+                return HttpResponse.json({
+                    range: { from_date: "2026-07-25T00:00:00.000Z", to_date: "2026-08-24T00:00:00.000Z" },
+                    sort: "engagement_per_publication",
+                    totals: GROUP,
+                    by_template: [{ ...GROUP, template: "from_images" }],
+                    ai_plans: [RESULT, { ...RESULT, id_ai_plan: "plan-2", ranked: false, maturing: true }],
+                    total: 2,
+                });
+            }),
+        );
+        const harness = await withServer();
+        const result = await harness.client.callTool({
+            name: "get_ai_plan_results",
+            arguments: { social_network: ["instagram"] },
+        });
+        expect(isError(result)).toBe(false);
+        const text = textOf(result);
+        expect(query.getAll("social_network")).toEqual(["instagram"]);
+        expect(text).toContain("template: from_images");
+        expect(text).toContain("engagement_per_post: 50");
+        //Primero no es bueno: el cociente frente a sus propias publicaciones va en cada fila, y la nota lo explica
+        expect(text).toContain("vs_your_average: 1.6x");
+        expect(text).toContain("can still be below 1x");
+        expect(text).toContain("ranked: false");
+        //Lo que impide que el modelo lea un plan sin medir como «el peor»
+        expect(text).toContain("not a bad plan");
+        expect(text).toContain("never zero");
+        //Sin `reach` en la fila: no se inventa un 0
+        expect(text).not.toContain("reach");
+        await harness.close();
+    });
+
+    it("sin resultados explica que cuenta la semana del plan, no su creación", async () => {
+        api.use(
+            organizations(ORG_A),
+            http.get(`${BASE_URL}/clients/client-1/organizations/org-a/ai_plans/results`, () =>
+                HttpResponse.json({
+                    range: { from_date: "2026-07-25T00:00:00.000Z", to_date: "2026-08-24T00:00:00.000Z" },
+                    sort: "engagement_per_publication",
+                    totals: { ...GROUP, plans: 0, ranked_plans: 0 },
+                    by_template: [],
+                    ai_plans: [],
+                    total: 0,
+                }),
+            ),
+        );
+        const harness = await withServer();
+        const result = await harness.client.callTool({ name: "get_ai_plan_results", arguments: {} });
+        expect(textOf(result)).toContain("the week it publishes in");
         await harness.close();
     });
 });

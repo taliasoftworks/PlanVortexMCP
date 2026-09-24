@@ -1,6 +1,6 @@
 /**
  * `upload_media`: la única herramienta que toca el disco, y la que más superficie de ataque tiene
- * de las veinticinco.
+ * de todas las herramientas.
  *
  * TRAMPA 6 DEL ROADMAP. El modelo no puede mandar 200 MB de vídeo en base64 por un `tools/call`.
  * Con **stdio** hay una salida limpia: el servidor corre en la máquina del usuario, así que se

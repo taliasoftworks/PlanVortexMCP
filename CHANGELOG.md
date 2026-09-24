@@ -4,6 +4,53 @@ All notable changes to `planvortex-mcp` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] — 2026-09-24
+
+**Pinterest reaches the server, and it is the first network where choosing the account does not
+choose where the post comes out: every pin goes to a board.** A model that does not know that
+publishes, reads "created", and reports a pin that never goes out — the server does not reject a
+pin without a board, it saves it with error 987. Everything below exists so a model gets it right
+from the tool descriptions alone.
+
+### Added
+
+- **`list_destinations`**, a read tool: the boards of a connected Pinterest account, and with
+  `id_destination` one board's sections. Its answer says to pass the **id**, not the name, and a
+  secret board comes back marked `SECRET`, because a pin there is seen by nobody else.
+- **`destination_id`, `destination_section_id` and `link` on `create_publication`**, and
+  `destination_id` and `link` on `update_publication`, which is also how a pin saved with the 987
+  gets fixed. The description of `create_publication` names the three things a pin needs that no
+  other network asks for: a board, an image or a video, and the URL in `link` rather than in the text.
+- **They are checked before calling the API**, against `GET /social_capabilities` and not a list
+  of ours: a Pinterest post without a board, a board passed by name, or a `link` on a network that
+  has no such field (where the server would delete it without a word) all come back as an error
+  that says what to do.
+- **`destinations` and `options.link` on `create_ai_plan`.** A plan with a Pinterest account needs
+  that account's board (2118), and one that would leave pins without an image is refused (2119).
+- **Advice for Pinterest's errors**: 987 (no board) and 993 (a board of another account) send the
+  model to `list_destinations`, 992 says the network has no destinations, 988 says a personal
+  account has no analytics, and **991 is transient** — Pinterest throttling PlanVortex's
+  application — so the model waits instead of rewriting the post.
+- `get_social_capabilities` gains the `destinations` and `link` columns.
+
+### Changed
+
+- **`planvortex` goes to `^0.12.0`**, the release with the board methods. Same `^0.x` trap as
+  always: **publish `planvortex@0.12.0` first and refresh `package-lock.json` before tagging this
+  one.**
+- The comment tools say that **Pinterest has no comments** to read — its API does not expose
+  them — so a model does not read an empty inbox as a delay and retry.
+- The instructions list the fourteen networks and give Pinterest a paragraph of its own. The
+  package, registry and bundle descriptions no longer count networks: the number went stale with
+  every new one.
+
+### Fixed
+
+- **A Pinterest title was counted in graphemes**, so `create_publication` let through titles the
+  server rejects with 995: Pinterest counts the title in code points, and a family emoji is one
+  grapheme and up to seven code points. The description is counted in UTF-16 units, as the server
+  does.
+
 ## [0.5.0] — 2026-09-17
 
 **A model can now answer «which of my AI plans worked?» without stitching it together by hand.**

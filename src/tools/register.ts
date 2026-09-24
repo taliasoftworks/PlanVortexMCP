@@ -1,5 +1,5 @@
 /**
- * El registrador común de las veinticinco herramientas.
+ * El registrador común de todas las herramientas.
  *
  * Existe para que tres invariantes no dependan de que nadie se acuerde:
  *
@@ -64,7 +64,7 @@ export function defineTool<I extends z.ZodType, O extends z.ZodType>(
             inputSchema: definition.inputSchema,
             ...(definition.outputSchema === undefined ? {} : { outputSchema: definition.outputSchema }),
             annotations: {
-                //Ninguna herramienta de este servidor es destructiva, y se dice en las veinticinco
+                //Ninguna herramienta de este servidor es destructiva, y se dice en todas
                 //(§ decisión 6): borrar una publicación, una cuenta, un contacto o una integración
                 //no es una opción desactivada, es código que no se ha escrito.
                 destructiveHint: false,

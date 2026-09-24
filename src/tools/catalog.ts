@@ -69,7 +69,10 @@ export function registerCatalogTools(server: McpServer, ctx: Context): void {
                 "products, webhooks — plus the comment moderation matrix: whether a reply, a hide " +
                 "or a delete is possible there. Not every network does everything: WhatsApp has " +
                 "no wall, Google Business does not publish at all, LinkedIn cannot hide a " +
-                "comment, and Slack publishes but has neither comments nor private messages. " +
+                "comment, and Slack and Pinterest publish but have no comments to read. Two " +
+                "columns are about publishing: destinations means every post needs a place inside " +
+                "the account (Pinterest's board, see list_destinations), and link means the post " +
+                "carries a destination URL of its own. " +
                 "Check here before promising the user something.",
             inputSchema: z.object({}),
             annotations: { readOnlyHint: true, openWorldHint: false },
@@ -90,6 +93,8 @@ export function registerCatalogTools(server: McpServer, ctx: Context): void {
                         messages: capability?.messages,
                         comments: capability?.comments,
                         products: capability?.products,
+                        destinations: capability?.destinations,
+                        link: capability?.link,
                         comment_reply: matrix?.reply,
                         comment_hide: matrix?.hide,
                         comment_delete_own: matrix?.delete_own,

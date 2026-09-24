@@ -19,7 +19,7 @@
  * demostró lo que pasa cuando cada uno guarda su copia — el compositor contaba LinkedIn hasta 3.000
  * mientras `validateCharacters` rechazaba en 1.300.
  */
-import type { SocialLimits } from "planvortex";
+import type { SocialCapabilities, SocialLimits } from "planvortex";
 
 export interface LimitProblem {
     /** La frase que lee el modelo, con el número exacto que sobra. */
@@ -63,12 +63,22 @@ export function validatePublication(
     const text = input.text ?? "";
     const { graphemes, bytes } = countText(text);
 
+    //PINTEREST no cuenta en grafemas, y en ninguno de sus dos campos (medido contra la API, fase 5
+    //de su roadmap): la descripción en unidades UTF-16 —acepta 800 puntos de código pero GUARDA
+    //sólo las 800 primeras unidades, sin avisar— y el título en puntos de código. Los grafemas son
+    //siempre los MENOS de las tres cuentas, así que con ellos este fichero dejaba pasar lo que el
+    //servidor rechaza con el 995: la familia de cuatro es 1 grafema, 7 puntos y 11 unidades.
+    const pinterest = network === "pinterest";
+    const textLength = pinterest ? text.length : graphemes;
     const maxCharacters = limits.characters?.[network];
-    if (maxCharacters !== undefined && maxCharacters > 0 && graphemes > maxCharacters) {
+    if (maxCharacters !== undefined && maxCharacters > 0 && textLength > maxCharacters) {
         problems.push({
             message:
-                `The text is ${graphemes} characters and ${network} allows ${maxCharacters}. ` +
-                `Remove ${graphemes - maxCharacters} characters.`,
+                `The text is ${textLength} characters and ${network} allows ${maxCharacters}. ` +
+                `Remove ${textLength - maxCharacters} characters.` +
+                (pinterest && textLength !== graphemes
+                    ? " Pinterest counts an emoji as two or more characters."
+                    : ""),
         });
     }
 
@@ -89,7 +99,10 @@ export function validatePublication(
             problems.push({
                 message: `${network} has no title field. Put everything in the text instead.`,
             });
-        } else if (maxTitle !== undefined && countText(input.title).graphemes > maxTitle) {
+        } else if (
+            maxTitle !== undefined &&
+            (pinterest ? Array.from(input.title).length : countText(input.title).graphemes) > maxTitle
+        ) {
             problems.push({
                 message: `The title is longer than the ${maxTitle} characters ${network} allows.`,
             });
@@ -109,6 +122,67 @@ export function validatePublication(
 
     if (!text.trim() && files.length === 0) {
         problems.push({ message: "A post needs text, media, or both. This one has neither." });
+    }
+
+    return problems;
+}
+
+/**
+ * Los dos campos que sólo tienen algunas redes —hoy, Pinterest—, validados con la matriz de
+ * capacidades del servidor y no con una lista de aquí.
+ *
+ * El DESTINO (el tablero) es la razón de que exista: sin él el servidor no rechaza nada, guarda la
+ * publicación en `withErrors` con el 987 y nadie la intenta. Un modelo que no sabe de tableros
+ * publica en Pinterest, lee «creada» y da el pin por hecho. Y al revés los dos: en una red sin esos
+ * campos el servidor los BORRA en silencio, así que un `link` en Facebook «funciona» y no hace nada
+ * — mejor decirlo que dejar al modelo creer que puso un enlace.
+ */
+export function validateNetworkFields(
+    capabilities: Record<string, SocialCapabilities | undefined>,
+    input: {
+        social_network: string;
+        destination?: string | undefined;
+        link?: string | undefined;
+        creating: boolean;
+    },
+): LimitProblem[] {
+    const network = input.social_network;
+    const capability = capabilities[network];
+    //Una red que esta versión no conoce no se juzga: que lo diga el servidor.
+    if (capability === undefined) return [];
+    const problems: LimitProblem[] = [];
+
+    if (capability.destinations) {
+        if (input.creating && !input.destination) {
+            problems.push({
+                message:
+                    `A ${network} post has to say where it goes inside the account (on Pinterest, ` +
+                    "the board). Call list_destinations with this account and pass one id as " +
+                    "destination_id; ask the user which board if it is not obvious.",
+            });
+        } else if (input.destination !== undefined && !/^\d+$/.test(input.destination)) {
+            problems.push({
+                message:
+                    `"${input.destination}" is not a board id. Pass the id from list_destinations ` +
+                    "(a string of digits), never the board's name.",
+            });
+        }
+    } else if (input.destination) {
+        problems.push({
+            message: `${network} has no destinations: the account itself is where the post goes. Remove destination_id.`,
+        });
+    }
+
+    if (input.link) {
+        if (!capability.link) {
+            problems.push({
+                message:
+                    `${network} has no separate link field. Put the URL inside the text instead, ` +
+                    "or remove link.",
+            });
+        } else if (!/^https?:\/\/\S+$/i.test(input.link)) {
+            problems.push({ message: `link has to be an http(s) URL; "${input.link}" is not.` });
+        }
     }
 
     return problems;

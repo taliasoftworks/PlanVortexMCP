@@ -13,7 +13,7 @@ import type { LogLevel } from "./log.js";
 
 /** Cómo se anuncia el servidor. La versión la sube el release, no la mano. */
 export const SERVER_NAME = "planvortex";
-export const VERSION = "0.5.0";
+export const VERSION = "0.6.0";
 
 /** El `User-Agent` con el que este servidor se distingue de la librería en los logs del API. */
 export const USER_AGENT = `planvortex-mcp/${VERSION}`;
@@ -176,7 +176,7 @@ export function loadConfig(env: NodeJS.ProcessEnv, argv: readonly string[]): Con
     if (mode === "http") {
         //En `--http` sí se termina el proceso: eso es un despliegue, nadie está mirando el
         //`stderr` de un contenedor que se queda arriba, y un servidor que contesta `200` a un
-        //`tools/list` y falla en las veinticinco herramientas es peor que uno que no arranca. En
+        //`tools/list` y falla en todas las herramientas es peor que uno que no arranca. En
         //stdio es al revés, y por qué está en `main`.
         if (!hasCredentials) {
             throw new ConfigError(CREDENTIALS_HELP);

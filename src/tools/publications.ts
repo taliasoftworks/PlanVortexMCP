@@ -1,5 +1,5 @@
 /**
- * Publicar: cinco herramientas, y lo caro no son las llamadas sino lo que las rodea —la validación
+ * Publicar: seis herramientas, y lo caro no son las llamadas sino lo que las rodea —la validación
  * previa contra los límites (§ trampa 13) y la caché anti-duplicado (§ trampa 4)—.
  *
  * No hay `delete_publication` y no es un olvido: **decisión 6 del roadmap**. Borrar no existe en
@@ -21,7 +21,7 @@ import {
     projectPublicationDetail,
 } from "../format/project.js";
 import { fingerprint } from "../dedupe.js";
-import { knownNetworks, validatePublication } from "../limits.js";
+import { knownNetworks, validateNetworkFields, validatePublication } from "../limits.js";
 import { defineTool } from "./register.js";
 
 const OrganizationArg = z.string().describe("The PlanVortex organization id. Optional.").optional();
@@ -36,6 +36,13 @@ const PublicationView = z.object({
     id_account: z.string(),
     errors: z.number(),
     url: z.string().optional(),
+});
+
+const DestinationView = z.object({
+    id: z.string(),
+    name: z.string(),
+    privacy: z.string().optional(),
+    sections: z.array(z.object({ id: z.string(), name: z.string() })).optional(),
 });
 
 export function registerPublicationTools(server: McpServer, ctx: Context): void {
@@ -109,6 +116,70 @@ export function registerPublicationTools(server: McpServer, ctx: Context): void 
         },
     );
 
+    //PINTEREST, y el motivo de que esta herramienta exista: elegir la cuenta no elige dónde sale el
+    //pin. Sin una forma de leer los tableros, el modelo sólo puede inventarse un id o mandar el
+    //nombre, y los dos acaban en un 987 guardado sin error: la publicación «se crea» y no sale.
+    defineTool(
+        server,
+        ctx,
+        {
+            name: "list_destinations",
+            title: "List where a post can go inside an account",
+            description:
+                "The places INSIDE a connected account a post can be sent to: on Pinterest, the " +
+                "boards. Every Pinterest post needs one of these ids as destination_id in " +
+                "create_publication. Most networks have none — the account itself is where the " +
+                "post goes — and there this answers that it does not apply. Pass id_destination " +
+                "to get one board's sections. A SECRET board is seen by nobody else, so say so " +
+                "if the user picks one. Set refresh only for a board created a moment ago.",
+            inputSchema: z.object({
+                id_account: z.string().describe("A connected account, from list_accounts."),
+                id_destination: z
+                    .string()
+                    .describe("Optional: one board's id, to read its sections.")
+                    .optional(),
+                refresh: z.boolean().describe("Skip the short cache. Rarely needed.").optional(),
+                id_organization: OrganizationArg,
+            }),
+            outputSchema: z.object({ destinations: z.array(DestinationView) }),
+            annotations: { readOnlyHint: true, openWorldHint: true },
+        },
+        async (args, context) => {
+            const idOrganization = await context.resolveOrganization(args.id_organization);
+            const options = args.refresh === undefined ? {} : { refresh: args.refresh };
+            const found =
+                args.id_destination === undefined
+                    ? await context.pv.accounts.destinations(idOrganization, args.id_account, options)
+                    : [
+                          await context.pv.accounts.destination(
+                              idOrganization,
+                              args.id_account,
+                              args.id_destination,
+                              options,
+                          ),
+                      ];
+            const destinations = found.map((destination) => ({
+                id: destination.id,
+                name: destination.name,
+                ...(destination.privacy === undefined ? {} : { privacy: destination.privacy }),
+                ...(destination.sections === undefined
+                    ? {}
+                    : {
+                          sections: destination.sections.map((section) => ({
+                              id: section.id,
+                              name: section.name,
+                          })),
+                      }),
+            }));
+            const note =
+                destinations.length === 0
+                    ? "This account has no boards yet. A board has to be created on Pinterest itself; " +
+                      "this server cannot create one."
+                    : "Pass the id (not the name) as destination_id in create_publication.";
+            return toolOk(`${asLines(destinations)}\n\n${note}`.trim(), { destinations });
+        },
+    );
+
     defineTool(
         server,
         ctx,
@@ -120,6 +191,9 @@ export function registerPublicationTools(server: McpServer, ctx: Context): void 
                 "a future publish_date to schedule, or 'draft' to leave it for a person to review. " +
                 "Media has to be uploaded first with upload_media; pass the returned ids in files. " +
                 "The text is validated against the network's limits before anything is sent. " +
+                "On Pinterest a pin needs things no other network asks for: a board " +
+                "(destination_id, from list_destinations), at least one image or video — a pin is " +
+                "never text alone — and, if it should lead somewhere, the URL in link. " +
                 "Always show the user what you are about to publish and let them confirm it: this " +
                 "posts publicly under their brand.",
             inputSchema: z.object({
@@ -132,9 +206,30 @@ export function registerPublicationTools(server: McpServer, ctx: Context): void 
                 text: z.string().describe("The post body.").optional(),
                 title: z
                     .string()
-                    .describe("Only on networks with a title field, such as YouTube.")
+                    .describe(
+                        "Only on networks with a title field: YouTube, and the pin's title on Pinterest.",
+                    )
                     .optional(),
                 files: z.array(z.string()).describe("Upload ids from upload_media.").optional(),
+                destination_id: z
+                    .string()
+                    .describe(
+                        "REQUIRED on Pinterest: the board the pin goes to, an id from " +
+                            "list_destinations (never the board's name). Other networks have no " +
+                            "destinations; leave it out there.",
+                    )
+                    .optional(),
+                destination_section_id: z
+                    .string()
+                    .describe("Pinterest only, optional: a section of that board, from list_destinations.")
+                    .optional(),
+                link: z
+                    .string()
+                    .describe(
+                        "Pinterest only: where the pin takes whoever clicks it. It goes here, not in " +
+                            "the text: inside the text it is visible and cannot be clicked.",
+                    )
+                    .optional(),
                 publish_date: z.string().describe("ISO 8601. Leave empty to publish immediately.").optional(),
                 state: z
                     .enum(["draft", "ready"])
@@ -170,6 +265,15 @@ export function registerPublicationTools(server: McpServer, ctx: Context): void 
                 title: args.title,
                 files: args.files,
             });
+            const capabilities = await context.pv.catalog.socialCapabilities();
+            problems.push(
+                ...validateNetworkFields(capabilities, {
+                    social_network: args.social_network,
+                    destination: args.destination_id,
+                    link: args.link,
+                    creating: true,
+                }),
+            );
             if (problems.length > 0) {
                 throw new ToolInputError(
                     `This post cannot be published as it is:\n${problems
@@ -191,6 +295,17 @@ export function registerPublicationTools(server: McpServer, ctx: Context): void 
                 ...(args.text === undefined ? {} : { text: args.text }),
                 ...(args.title === undefined ? {} : { title: args.title }),
                 ...(args.files === undefined ? {} : { files: args.files }),
+                ...(args.destination_id === undefined
+                    ? {}
+                    : {
+                          destination: {
+                              id: args.destination_id,
+                              ...(args.destination_section_id === undefined
+                                  ? {}
+                                  : { section_id: args.destination_section_id }),
+                          },
+                      }),
+                ...(args.link === undefined ? {} : { link: args.link }),
                 ...(args.publish_date === undefined ? {} : { publish_date: args.publish_date }),
             } as PublicationInput;
 
@@ -241,12 +356,18 @@ export function registerPublicationTools(server: McpServer, ctx: Context): void 
             description:
                 "Change the text, media or scheduled date of a post that has NOT gone out yet " +
                 "(state draft or ready). A published post cannot be edited through PlanVortex; if " +
-                "you try, the error will say so.",
+                "you try, the error will say so. A Pinterest pin saved without a board (error 987) " +
+                "is fixed here by passing destination_id.",
             inputSchema: z.object({
                 id_publication: z.string(),
                 text: z.string().optional(),
                 title: z.string().optional(),
                 files: z.array(z.string()).optional(),
+                destination_id: z
+                    .string()
+                    .describe("Pinterest: the board, an id from list_destinations.")
+                    .optional(),
+                link: z.string().describe("Pinterest: the pin's destination URL.").optional(),
                 publish_date: z.string().describe("ISO 8601.").optional(),
                 state: z.enum(["draft", "ready"]).optional(),
                 id_organization: OrganizationArg,
@@ -263,6 +384,22 @@ export function registerPublicationTools(server: McpServer, ctx: Context): void 
                     `This post is already ${current.state === "sended" ? "published" : "being published"} ` +
                         "and cannot be edited. Create a new post instead.",
                 );
+            }
+            if (args.destination_id !== undefined || args.link !== undefined) {
+                const capabilities = await context.pv.catalog.socialCapabilities();
+                const problems = validateNetworkFields(capabilities, {
+                    social_network: String(current.social_network),
+                    destination: args.destination_id,
+                    link: args.link,
+                    creating: false,
+                });
+                if (problems.length > 0) {
+                    throw new ToolInputError(
+                        `This edit cannot be saved:\n${problems
+                            .map((problem) => `- ${problem.message}`)
+                            .join("\n")}`,
+                    );
+                }
             }
             if (args.text !== undefined) {
                 const limits = await context.pv.catalog.socialLimits();
@@ -284,6 +421,8 @@ export function registerPublicationTools(server: McpServer, ctx: Context): void 
                 ...(args.text === undefined ? {} : { text: args.text }),
                 ...(args.title === undefined ? {} : { title: args.title }),
                 ...(args.files === undefined ? {} : { files: args.files }),
+                ...(args.destination_id === undefined ? {} : { destination: { id: args.destination_id } }),
+                ...(args.link === undefined ? {} : { link: args.link }),
                 ...(args.publish_date === undefined ? {} : { publish_date: args.publish_date }),
                 ...(args.state === undefined ? {} : { state: args.state }),
             });

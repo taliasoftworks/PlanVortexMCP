@@ -1,5 +1,5 @@
 /**
- * Lo que comparten las veinticinco herramientas: un cliente `planvortex`, el cubo de fichas y la
+ * Lo que comparten todas las herramientas: un cliente `planvortex`, el cubo de fichas y la
  * resolución de la organización.
  *
  * El servidor MCP **no habla HTTP**. Le pide las cosas a la librería, que ya resolvió los 214
@@ -19,7 +19,7 @@ export interface Context {
     /**
      * El cliente de la librería. Es un **getter perezoso** y por una razón concreta: en stdio las
      * credenciales pueden no estar (§ `main`), y aun así el servidor tiene que listar sus
-     * veinticinco herramientas. Se construye la primera vez que alguien va a salir a la red, y si
+     * herramientas. Se construye la primera vez que alguien va a salir a la red, y si
      * entonces no hay credenciales lanza {@link ToolInputError} con {@link CREDENTIALS_HELP}, que
      * `runTool` convierte en un `isError` que el modelo puede leerle al usuario.
      */

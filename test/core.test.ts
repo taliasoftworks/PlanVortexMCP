@@ -3,7 +3,7 @@
  * conteo de texto y logs.
  *
  * Van aparte de `tools.test.ts` porque no necesitan un servidor MCP: son las cuatro cosas que
- * deciden cómo se comportan las veinticinco herramientas, y probarlas a través de una llamada de
+ * deciden cómo se comportan todas las herramientas, y probarlas a través de una llamada de
  * herramienta las probaría peor.
  */
 import { describe, expect, it, vi } from "vitest";
@@ -43,7 +43,7 @@ describe("configuración", () => {
 
     it("en --http, sin credenciales sí se tumba el arranque", () => {
         //Al revés que en stdio, y a propósito: un despliegue que se queda arriba contestando 200 a
-        //un `tools/list` y fallando en las veinticinco herramientas es peor que uno que no arranca.
+        //un `tools/list` y fallando en todas las herramientas es peor que uno que no arranca.
         expect(() => loadConfig({}, ["--http"])).toThrow(ConfigError);
         expect(() => loadConfig({}, ["--http"])).toThrow(/PLANVORTEX_CLIENT_ID/);
     });

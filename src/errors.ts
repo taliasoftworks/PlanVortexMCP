@@ -13,8 +13,8 @@
  * - **Error de ejecución** (`isError: true` dentro de un resultado correcto): la API falló, la
  *   fecha está mal, el texto se pasa de largo. **Esto sí lo lee el modelo y con esto se corrige.**
  *
- * Todo lo que salga de una herramienta es lo segundo, y por eso {@link runTool} envuelve a las
- * veinticinco: un fallo que escapara se convertiría en error de protocolo y el modelo se quedaría
+ * Todo lo que salga de una herramienta es lo segundo, y por eso {@link runTool} envuelve a
+ * todas: un fallo que escapara se convertiría en error de protocolo y el modelo se quedaría
  * sin nada que leer.
  *
  * Y el error NUNCA es un volcado del JSON. `{"code":907,"message":"...","data":{...}}` en el
@@ -89,12 +89,20 @@ function advice(error: PlanVortexError): string {
     //generico. Y el generico es justo el contrario del bueno: aqui no hay nada que corregir en el
     //post, hay que esperar. El 984 es el mismo caso una red mas tarde: es el 429 de Slack con la
     //ventana de reintentos agotada, y cae en `publication` desde que el rango llega al 986.
-    if (error.code === 978 || error.code === 979 || error.code === 545 || error.code === 984) {
+    //El 991 es el de Pinterest: la red frena a la APLICACION de PlanVortex, que comparten todos los
+    //clientes, y llega como 429 con `Retry-After`.
+    if (
+        error.code === 978 ||
+        error.code === 979 ||
+        error.code === 545 ||
+        error.code === 984 ||
+        error.code === 991
+    ) {
         return rateAdvice(error);
     }
     switch (error.family) {
         case "publication":
-            //900-986, y no todo lo que hay dentro es «arregla el post»: el rango mete también un
+            //900-996, y no todo lo que hay dentro es «arregla el post»: el rango mete también un
             //id que no existe, un post ya enviado, un tope de cuenta y los dos de Slack que
             //necesitan a una persona. Ver {@link publicationAdvice}.
             return publicationAdvice(error);
@@ -164,7 +172,7 @@ function advice(error: PlanVortexError): string {
 }
 
 /**
- * El rango `publication` (900-986), desglosado por la misma razón que el de `auth` y descubierto
+ * El rango `publication` (900-996), desglosado por la misma razón que el de `auth` y descubierto
  * igual: la capa 3 pidió las estadísticas de una publicación borrada y el servidor contestó
  * «esto es un problema del post, corrige el texto o los ficheros y vuelve a llamar». No hay texto
  * que corregir cuando el identificador no existe.
@@ -210,6 +218,14 @@ function rateAdvice(error: PlanVortexError): string {
             "another channel of the same workspace will hit it too. Do not rewrite anything and do " +
             "not retry immediately — wait a minute and send the rest spaced out, or schedule them " +
             "with a publish_date."
+        );
+    }
+    if (error.code === 991) {
+        return (
+            "Pinterest is rate limiting PlanVortex's application. This is TRANSIENT and it has " +
+            "nothing to do with the post or the account: do not rewrite anything. Wait the seconds " +
+            "the Retry-After header says before the next Pinterest call, and schedule the rest " +
+            "with a publish_date instead of sending them in a burst."
         );
     }
     if (error.code === 979) {
@@ -266,6 +282,31 @@ function publicationAdvice(error: PlanVortexError): string {
                 "to it. Do not retry: this does not fix itself. Either somebody unarchives the " +
                 "channel in Slack, or the account is reconnected to a different one. Call " +
                 "list_accounts to pick another."
+            );
+        //PINTEREST. Los tres del tablero, que no se arreglan con otro texto: el 987 es el más común
+        //de la red y casi siempre es que el modelo no sabía que hay tableros.
+        case 987:
+            return (
+                "A Pinterest pin has to go to a board and this one has none, or the id given is not " +
+                "a board id (a board's NAME does not work). Call list_destinations with the " +
+                "account, ask the user which board, and pass its id as destination_id — with " +
+                "update_publication if the post already exists."
+            );
+        case 992:
+            return (
+                "This network has no destinations: the account itself is where the post goes. " +
+                "Remove destination_id and call again."
+            );
+        case 993:
+            return (
+                "That board is not in this account: it was deleted, or it belongs to another " +
+                "profile. Call list_destinations and take an id from there."
+            );
+        case 988:
+            return (
+                "That Pinterest account is a personal one, and Pinterest only gives analytics to " +
+                "business accounts. Nothing about a post fixes it: the user has to switch the " +
+                "account to a business account on Pinterest and reconnect it (create_connect_link)."
             );
         //Lo demás sí es el post: sobran caracteres, la red no admite ese tipo de fichero, falta un
         //título, el fichero pesa demasiado para Slack (983) o la subida se cayó (986). Lo que hay

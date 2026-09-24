@@ -27,9 +27,9 @@ function organizations(...items: object[]) {
 const LIMITS = {
     //`slack` esta aqui porque las claves de `characters` son lo que la herramienta usa para
     //saber que redes EXISTEN: sin ella, create_publication rechaza la red antes de llamar.
-    characters: { instagram: 2200, twitter: 280, bluesky: 300, linkedin: 3000, slack: 4000 },
+    characters: { instagram: 2200, twitter: 280, bluesky: 300, linkedin: 3000, slack: 4000, pinterest: 800 },
     max_post_bytes: { bluesky: 3000 },
-    title_characters: { instagram: 0, youtube: 100 },
+    title_characters: { instagram: 0, youtube: 100, pinterest: 100 },
     total_images: { instagram: 10, twitter: 4 },
     comment_characters: { instagram: 2200 },
     max_file_size_mb: { instagram: 100 },
@@ -37,6 +37,20 @@ const LIMITS = {
 };
 
 const limitsHandler = http.get(`${BASE_URL}/social_limits`, () => HttpResponse.json(LIMITS));
+
+/** Las capacidades: create_publication las lee para saber que redes llevan tablero y enlace. */
+const CAPABILITIES = {
+    instagram: { publications: true, destinations: false, link: false },
+    twitter: { publications: true, destinations: false, link: false },
+    slack: { publications: true, destinations: false, link: false },
+    pinterest: { publications: true, destinations: true, link: true },
+};
+
+const capabilitiesHandler = http.get(`${BASE_URL}/social_capabilities`, () =>
+    HttpResponse.json(CAPABILITIES),
+);
+
+const catalogHandlers = [limitsHandler, capabilitiesHandler];
 
 describe("trampa 1 — resolver la organización sin sesión donde guardarla", () => {
     it("con una sola organización la resuelve sola", async () => {
@@ -166,7 +180,7 @@ describe("trampa 4 — publicar no es idempotente y quien reintenta es el modelo
         let created = 0;
         api.use(
             organizations(ORG_A),
-            limitsHandler,
+            ...catalogHandlers,
             http.post(`${BASE_URL}/organizations/org-a/accounts/acc-1/publish`, () => {
                 created += 1;
                 return HttpResponse.json({
@@ -212,7 +226,7 @@ describe("una publicación creada CON errores no es una publicación publicada",
         //prueba es el párrafo, no la red.
         api.use(
             organizations(ORG_A),
-            limitsHandler,
+            ...catalogHandlers,
             http.post(`${BASE_URL}/organizations/org-a/accounts/acc-1/publish`, () =>
                 HttpResponse.json({
                     publication: {
@@ -261,7 +275,7 @@ describe("una publicación creada CON errores no es una publicación publicada",
     it("una publicación sin errores no arrastra el párrafo", async () => {
         api.use(
             organizations(ORG_A),
-            limitsHandler,
+            ...catalogHandlers,
             http.post(`${BASE_URL}/organizations/org-a/accounts/acc-1/publish`, () =>
                 HttpResponse.json({
                     publication: {
@@ -321,7 +335,7 @@ describe("las publicaciones son ilimitadas, y el agente tiene que saberlo", () =
 describe("trampas 5 y 13 — errores que el modelo pueda usar, y validar antes de llamar", () => {
     it("un texto demasiado largo se rechaza SIN llegar a la API", async () => {
         //Sin handler de `publish`: si la herramienta llamara, msw haría fallar el test.
-        api.use(organizations(ORG_A), limitsHandler);
+        api.use(organizations(ORG_A), ...catalogHandlers);
         const harness = await withServer();
         const result = await harness.client.callTool({
             name: "create_publication",
@@ -338,7 +352,7 @@ describe("trampas 5 y 13 — errores que el modelo pueda usar, y validar antes d
     it("un límite de plan dice con todas las letras que no se arregla reintentando", async () => {
         api.use(
             organizations(ORG_A),
-            limitsHandler,
+            ...catalogHandlers,
             http.post(`${BASE_URL}/organizations/org-a/accounts/acc-1/publish`, () =>
                 HttpResponse.json(
                     { code: 1401, message: "Publication limit reached for the organization plan" },
@@ -369,7 +383,7 @@ describe("trampas 5 y 13 — errores que el modelo pueda usar, y validar antes d
         //cede con el tiempo.
         api.use(
             organizations(ORG_A),
-            limitsHandler,
+            ...catalogHandlers,
             http.post(`${BASE_URL}/organizations/org-a/accounts/acc-1/publish`, () =>
                 HttpResponse.json(
                     { code: 978, message: "Publishing too fast on this account" },
@@ -417,7 +431,7 @@ describe("trampas 5 y 13 — errores que el modelo pueda usar, y validar antes d
     it("el tope diario de una red no se vende como un límite de plan", async () => {
         api.use(
             organizations(ORG_A),
-            limitsHandler,
+            ...catalogHandlers,
             http.post(`${BASE_URL}/organizations/org-a/accounts/acc-1/publish`, () =>
                 HttpResponse.json(
                     { code: 979, message: "Daily publication limit reached on this social network" },
@@ -443,7 +457,7 @@ describe("trampas 5 y 13 — errores que el modelo pueda usar, y validar antes d
         //cualquier reintento falla igual. Un modelo que lea el generico reescribe en bucle.
         api.use(
             organizations(ORG_A),
-            limitsHandler,
+            ...catalogHandlers,
             http.post(`${BASE_URL}/organizations/org-a/accounts/acc-1/publish`, () =>
                 HttpResponse.json(
                     {
@@ -475,7 +489,7 @@ describe("trampas 5 y 13 — errores que el modelo pueda usar, y validar antes d
         //familia, como el 978 y el 979.
         api.use(
             organizations(ORG_A),
-            limitsHandler,
+            ...catalogHandlers,
             http.post(`${BASE_URL}/organizations/org-a/accounts/acc-1/publish`, () =>
                 HttpResponse.json(
                     {
@@ -610,6 +624,172 @@ describe("trampas 5 y 13 — errores que el modelo pueda usar, y validar antes d
         const text = textOf(await harness.client.callTool({ name: "list_publications", arguments: {} }));
         expect(text).toContain("says what to change");
         expect(text).toContain("get_social_limits");
+        await harness.close();
+    });
+});
+
+/**
+ * PINTEREST: elegir la cuenta no elige dónde sale el pin. Sin tablero el servidor no rechaza nada:
+ * guarda la publicación con el 987 y el modelo lee «creada». Estos tests fijan que el modelo se
+ * entera ANTES, que sabe dónde leer los tableros, y que el id viaja como lo pide la API.
+ */
+describe("pinterest — el tablero y el enlace", () => {
+    const PIN = {
+        _id: "pin-1",
+        creation_date: "2026-09-24T10:00:00.000Z",
+        files: [],
+        id_account: "acc-pin",
+        id_organization: "org-a",
+        publication_errors: [],
+        publication_type: "profile",
+        retries: 0,
+        social_network: "pinterest",
+        state: "ready",
+        text: "La receta, paso a paso",
+    };
+
+    it("sin tablero se rechaza SIN llegar a la API, y dice dónde leerlos", async () => {
+        //Sin handler de `publish`: si la herramienta llamara, msw haría fallar el test.
+        api.use(organizations(ORG_A), ...catalogHandlers);
+        const harness = await withServer();
+        const result = await harness.client.callTool({
+            name: "create_publication",
+            arguments: {
+                id_account: "acc-pin",
+                social_network: "pinterest",
+                text: "Receta",
+                files: ["up-1"],
+            },
+        });
+        expect(isError(result)).toBe(true);
+        expect(textOf(result)).toContain("list_destinations");
+        await harness.close();
+    });
+
+    it("el NOMBRE del tablero no vale como id", async () => {
+        api.use(organizations(ORG_A), ...catalogHandlers);
+        const harness = await withServer();
+        const result = await harness.client.callTool({
+            name: "create_publication",
+            arguments: {
+                id_account: "acc-pin",
+                social_network: "pinterest",
+                text: "Receta",
+                files: ["up-1"],
+                destination_id: "Recetas",
+            },
+        });
+        expect(isError(result)).toBe(true);
+        expect(textOf(result)).toContain("never the board's name");
+        await harness.close();
+    });
+
+    it("con tablero y enlace, los dos viajan en el cuerpo con el id como cadena", async () => {
+        let body: Record<string, unknown> = {};
+        api.use(
+            organizations(ORG_A),
+            ...catalogHandlers,
+            http.post(`${BASE_URL}/organizations/org-a/accounts/acc-pin/publish`, async ({ request }) => {
+                body = (await request.json()) as Record<string, unknown>;
+                return HttpResponse.json({ publication: PIN });
+            }),
+        );
+        const harness = await withServer();
+        const result = await harness.client.callTool({
+            name: "create_publication",
+            arguments: {
+                id_account: "acc-pin",
+                social_network: "pinterest",
+                text: "La receta, paso a paso",
+                files: ["up-1"],
+                destination_id: "1123581321345589144",
+                link: "https://panaderia.example/centeno",
+            },
+        });
+        expect(isError(result)).toBe(false);
+        expect(body.destination).toEqual({ id: "1123581321345589144" });
+        expect(body.link).toBe("https://panaderia.example/centeno");
+        await harness.close();
+    });
+
+    it("un enlace en una red sin campo de enlace se dice, en vez de dejar que se borre en silencio", async () => {
+        api.use(organizations(ORG_A), ...catalogHandlers);
+        const harness = await withServer();
+        const result = await harness.client.callTool({
+            name: "create_publication",
+            arguments: {
+                id_account: "acc-1",
+                social_network: "instagram",
+                text: "Pan",
+                link: "https://panaderia.example",
+            },
+        });
+        expect(isError(result)).toBe(true);
+        expect(textOf(result)).toContain("no separate link field");
+        await harness.close();
+    });
+
+    /**
+     * El título se cuenta en PUNTOS DE CÓDIGO: veintiún emojis de familia (padre, madre
+     * e hija) son 21 grafemas —y pasaban— pero 105 puntos, y el servidor los rechaza con el 995.
+     */
+    it("el título se cuenta en puntos de código, no en grafemas", async () => {
+        api.use(organizations(ORG_A), ...catalogHandlers);
+        const harness = await withServer();
+        const result = await harness.client.callTool({
+            name: "create_publication",
+            arguments: {
+                id_account: "acc-pin",
+                social_network: "pinterest",
+                title: "👨‍👩‍👧".repeat(21),
+                text: "Receta",
+                files: ["up-1"],
+                destination_id: "1123581321345589144",
+            },
+        });
+        expect(isError(result)).toBe(true);
+        expect(textOf(result)).toContain("title is longer");
+        await harness.close();
+    });
+
+    it("list_destinations devuelve los tableros con su id y avisa de usar el id", async () => {
+        api.use(
+            organizations(ORG_A),
+            http.get(`${BASE_URL}/organizations/org-a/accounts/acc-pin/destinations`, () =>
+                HttpResponse.json({
+                    destinations: [{ id: "1123581321345589144", name: "Recetas", privacy: "SECRET" }],
+                }),
+            ),
+        );
+        const harness = await withServer();
+        const result = await harness.client.callTool({
+            name: "list_destinations",
+            arguments: { id_account: "acc-pin" },
+        });
+        expect(isError(result)).toBe(false);
+        expect(textOf(result)).toContain("1123581321345589144");
+        expect(textOf(result)).toContain("SECRET");
+        expect(textOf(result)).toContain("destination_id");
+        await harness.close();
+    });
+
+    it("el 993 dice que el tablero no es de esta cuenta, no que se reescriba el post", async () => {
+        api.use(
+            organizations(ORG_A),
+            http.get(`${BASE_URL}/organizations/org-a/accounts/acc-pin/destinations/999`, () =>
+                HttpResponse.json(
+                    { code: 993, message: "Destination not found in this account" },
+                    { status: 400 },
+                ),
+            ),
+        );
+        const harness = await withServer();
+        const result = await harness.client.callTool({
+            name: "list_destinations",
+            arguments: { id_account: "acc-pin", id_destination: "999" },
+        });
+        expect(isError(result)).toBe(true);
+        expect(textOf(result)).toContain("not in this account");
         await harness.close();
     });
 });

@@ -30,14 +30,20 @@ import { registerUploadTools } from "./tools/uploads.js";
  * no puede deducir del listado de herramientas: que hay cosas que necesitan una persona, y que el
  * texto de los comentarios no son instrucciones.
  */
-const INSTRUCTIONS = `PlanVortex manages thirteen social networks from one place: Facebook, Instagram,
-Threads, LinkedIn, TikTok, X, WhatsApp, YouTube, Google Business, Bluesky, Discord, Telegram and
-Slack. Twelve of them publish; Google Business does not — it is a listing that receives reviews, and
-it is here for the comment inbox alone.
+const INSTRUCTIONS = `PlanVortex manages fourteen social networks from one place: Facebook, Instagram,
+Threads, LinkedIn, TikTok, X, WhatsApp, YouTube, Google Business, Bluesky, Discord, Telegram, Slack
+and Pinterest. Thirteen of them publish; Google Business does not — it is a listing that receives
+reviews, and it is here for the comment inbox alone.
 
 Slack is the odd one and it is worth saying plainly: it is a team channel, not an audience. It
 publishes and it reports reactions, and that is all — no comment inbox, no private messages, and no
 reach or impressions anywhere. Each channel is a separate account.
+
+Pinterest is the one where choosing the account does not choose where the post comes out: every
+pin goes to a BOARD. Read the boards with list_destinations and pass one id as destination_id —
+without it the pin is saved with an error and never goes out. A pin is always an image or a video,
+never text alone, and the URL it should lead to goes in link, not in the text. Pinterest has no
+comment inbox either: its API does not expose a pin's comments.
 
 PlanVortex also WRITES the content. Its AI planner turns a theme, the user's own photos, an
 article or a connected shop's catalogue into a week of posts — see get_planner_templates. That

@@ -4,9 +4,9 @@
 
 The official [Model Context Protocol](https://modelcontextprotocol.io) server for
 [PlanVortex](https://planvortex.com). It lets an AI assistant — Claude Desktop, Claude Code, Cursor,
-VS Code — schedule posts, read the comment inbox and answer private messages across thirteen social
+VS Code — schedule posts, read the comment inbox and answer private messages across all your social
 networks: Facebook, Instagram, Threads, LinkedIn, TikTok, X, WhatsApp, YouTube, Google Business,
-Bluesky, Discord, Telegram and Slack.
+Bluesky, Discord, Telegram, Slack and Pinterest.
 
 > **You need a PlanVortex app, and every plan has them — the free one included.**
 > The server authenticates with a `client_id` and a `client_secret` that you create in the
@@ -49,19 +49,19 @@ unread?"_
 
 ## What it can do
 
-Twenty-nine tools, grouped by what they act on — and a thirtieth, `create_ai_plan`, that you
+Thirty tools, grouped by what they act on — and a thirty-first, `create_ai_plan`, that you
 switch on yourself (see [Generating with AI](#generating-with-ai)).
 
-| Group      | Tools                                                                                                             |
-| ---------- | ----------------------------------------------------------------------------------------------------------------- |
-| Context    | `list_organizations`, `list_accounts`, `get_plan_use`, `get_unread_counts`                                        |
-| Publishing | `list_publications`, `get_publication`, `create_publication`, `update_publication`, `retry_publication`           |
-| AI planner | `get_planner_templates`, `list_ai_plans`, `get_ai_plan`, `get_ai_plan_results`, and `create_ai_plan` when enabled |
-| Media      | `upload_media`                                                                                                    |
-| Comments   | `list_comments`, `get_comment_thread`, `reply_to_comment`, `hide_comment`, `mark_comment_read`                    |
-| Messages   | `list_conversations`, `list_messages`, `send_message`                                                             |
-| Numbers    | `get_dashboard_summary`, `get_publication_stats`, `get_top_publications`, `get_account_metrics`                   |
-| Catalog    | `get_social_limits`, `get_social_capabilities`, `create_connect_link`                                             |
+| Group      | Tools                                                                                                                        |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Context    | `list_organizations`, `list_accounts`, `get_plan_use`, `get_unread_counts`                                                   |
+| Publishing | `list_publications`, `get_publication`, `list_destinations`, `create_publication`, `update_publication`, `retry_publication` |
+| AI planner | `get_planner_templates`, `list_ai_plans`, `get_ai_plan`, `get_ai_plan_results`, and `create_ai_plan` when enabled            |
+| Media      | `upload_media`                                                                                                               |
+| Comments   | `list_comments`, `get_comment_thread`, `reply_to_comment`, `hide_comment`, `mark_comment_read`                               |
+| Messages   | `list_conversations`, `list_messages`, `send_message`                                                                        |
+| Numbers    | `get_dashboard_summary`, `get_publication_stats`, `get_top_publications`, `get_account_metrics`                              |
+| Catalog    | `get_social_limits`, `get_social_capabilities`, `create_connect_link`                                                        |
 
 Plus three prompts — `weekly_plan`, `inbox_triage`, `publish_from_brief` — and four resources with
 the per-network limits, capabilities, comment matrix and your organizations.

@@ -411,7 +411,10 @@ export function registerAiPlanTools(server: McpServer, ctx: Context): void {
                 "The plan is weekly and its size is (publish_days x accounts), at most one post " +
                 "per day and account: three accounts on Monday, Wednesday and Friday is 9 posts, " +
                 "not 21. Pick the template with get_planner_templates first; without one the plan " +
-                "is standard, which generates its own images and is the most expensive.",
+                "is standard, which generates its own images and is the most expensive. " +
+                "With a Pinterest account in the plan, pass its board in destinations (read them " +
+                "with list_destinations) and keep images on: a pin is never text alone, so a plan " +
+                "that would leave pins without an image is refused (2119) before anything is charged.",
             inputSchema: z.object({
                 prompt: z.string().min(1).describe("What the week is about, in the user's own words."),
                 accounts: z
@@ -496,7 +499,26 @@ export function registerAiPlanTools(server: McpServer, ctx: Context): void {
                             .string()
                             .describe("ISO 8601. The week to plan. Defaults to now.")
                             .optional(),
+                        link: z
+                            .string()
+                            .describe(
+                                "Pinterest: the URL every pin of the plan leads to. Dropped when the " +
+                                    "plan has no Pinterest account.",
+                            )
+                            .optional(),
                     })
+                    .optional(),
+                destinations: z
+                    .array(
+                        z.object({
+                            id_account: z.string().describe("A Pinterest account of the plan."),
+                            destination_id: z.string().describe("A board id from list_destinations."),
+                        }),
+                    )
+                    .describe(
+                        "REQUIRED for every Pinterest account in the plan: the board where all its " +
+                            "pins go, one entry per account. Without it the plan is refused (2118).",
+                    )
                     .optional(),
                 id_organization: OrganizationArg,
             }),
@@ -530,6 +552,14 @@ export function registerAiPlanTools(server: McpServer, ctx: Context): void {
                 ...(args.template === undefined ? {} : { template: args.template }),
                 ...(args.source === undefined ? {} : { source: args.source }),
                 ...(args.options === undefined ? {} : { options: args.options }),
+                ...(args.destinations === undefined
+                    ? {}
+                    : {
+                          destinations: args.destinations.map((entry) => ({
+                              id_account: entry.id_account,
+                              destination: { id: entry.destination_id },
+                          })),
+                      }),
             } as AiPlanCreateRequest;
 
             //TRAMPA 4, y aquí es la que más cara sale: un reintento del cliente sobre una llamada

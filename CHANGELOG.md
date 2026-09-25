@@ -4,6 +4,26 @@ All notable changes to `planvortex-mcp` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] — 2026-09-25
+
+**A misspelled argument used to answer about a different organization, and nothing said so.** Every
+tool takes `id_organization`; a call that said `organization_id` had that key silently dropped by
+the schema, so the organization was resolved from `PLANVORTEX_ORGANIZATION_ID` instead — and the
+answer that came back was complete, coherent, and about somebody else's accounts. There is no way
+for a model to notice that. Found by exactly that mistake, made by a model.
+
+### Changed
+
+- **No tool accepts unknown arguments any more.** Input schemas are closed in the one place every
+  tool goes through, so an unrecognised key is a validation error naming the key instead of a
+  silent drop. The published JSON Schema now carries `additionalProperties: false`, so a client
+  sees the rule too. A call that passed extra keys and appeared to work will now fail — which is
+  the point, because appearing to work is what it did.
+- **When the organization is not given, the answer says which one was used.** Only in the case
+  where it can mislead: the default coming from `PLANVORTEX_ORGANIZATION_ID`. With a single
+  organization there is nothing to disambiguate, and with several and no default the server already
+  asks for the id. The note costs no extra API call.
+
 ## [0.6.0] — 2026-09-24
 
 **Pinterest reaches the server, and it is the first network where choosing the account does not

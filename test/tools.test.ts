@@ -932,3 +932,86 @@ describe("trampa 6 — subir un fichero desde disco tiene allowlist", () => {
         await httpMode.close();
     });
 });
+
+describe("trampa 16 — una clave desconocida no puede contestar por otra organización", () => {
+    const ACCOUNT = {
+        _id: "acc-1",
+        name: "Panadería Norte",
+        social_network: "instagram",
+        error_code: 0,
+        deleted: false,
+    };
+
+    /**
+     * El caso real, y el que descubrió la trampa: se mandó `organization_id` donde el esquema pide
+     * `id_organization`. Un `z.object` descarta la clave desconocida, el id queda sin dar, y con
+     * `PLANVORTEX_ORGANIZATION_ID` puesto el servidor contesta por ESA organización — con datos
+     * coherentes y de otra. No hay handler de cuentas en este test: si llegara a la API, msw
+     * haría fallar el test, que es exactamente lo que se quiere.
+     */
+    it("rechaza el argumento mal escrito en vez de resolver por el valor por defecto", async () => {
+        const harness = await withServer({ organizationId: "org-env" });
+        let rejected = false;
+        let detail = "";
+        try {
+            const result = await harness.client.callTool({
+                name: "list_accounts",
+                arguments: { organization_id: "org-otra" },
+            });
+            rejected = isError(result);
+            detail = textOf(result);
+        } catch (error) {
+            //Una validación de esquema puede salir como error de protocolo; también es un rechazo.
+            rejected = true;
+            detail = String(error);
+        }
+        expect(rejected).toBe(true);
+        expect(detail).toContain("organization_id");
+        await harness.close();
+    });
+
+    /**
+     * El mecanismo de verdad. Cerrar los esquemas en `defineTool` vale para las que hay; este test
+     * vale para la próxima, incluida la que se escriba con un `.refine` y ya no sea un objeto
+     * llano.
+     */
+    it("todas las herramientas publican su esquema cerrado", async () => {
+        const harness = await withServer({ allowAiPlans: true });
+        const { tools } = await harness.client.listTools();
+        expect(tools.length).toBeGreaterThan(20);
+        for (const tool of tools) {
+            expect(tool.inputSchema.additionalProperties, `${tool.name} admite claves extra`).toBe(false);
+        }
+        await harness.close();
+    });
+
+    it("cuando la organización sale del entorno, la respuesta dice cuál se usó", async () => {
+        api.use(
+            http.get(`${BASE_URL}/organizations/org-env/accounts`, () =>
+                HttpResponse.json(paged("accounts", [ACCOUNT])),
+            ),
+        );
+        const harness = await withServer({ organizationId: "org-env" });
+        const result = await harness.client.callTool({ name: "list_accounts", arguments: {} });
+        expect(isError(result)).toBe(false);
+        expect(textOf(result)).toContain("Organization: org-env");
+        expect(textOf(result)).toContain("id_organization");
+        await harness.close();
+    });
+
+    it("y no la dice cuando el id vino en la llamada, que es la mitad del valor de la nota", async () => {
+        api.use(
+            http.get(`${BASE_URL}/organizations/org-z/accounts`, () =>
+                HttpResponse.json(paged("accounts", [ACCOUNT])),
+            ),
+        );
+        const harness = await withServer({ organizationId: "org-env" });
+        const result = await harness.client.callTool({
+            name: "list_accounts",
+            arguments: { id_organization: "org-z" },
+        });
+        expect(isError(result)).toBe(false);
+        expect(textOf(result)).not.toContain("It was not given");
+        await harness.close();
+    });
+});

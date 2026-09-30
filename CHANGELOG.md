@@ -4,6 +4,40 @@ All notable changes to `planvortex-mcp` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] — 2026-09-29
+
+**A connected shop becomes a source for the AI planner.** `from_catalog` could already write a week
+from a Meta catalogue; now it can write it from a WooCommerce store connected to PlanVortex, with the
+store's own names, prices, pictures and product pages. A model that does not know which products
+the shop has can only invent their ids, so the new read tool exists to hand them over.
+
+### Added
+
+- **`list_store_products`**, a read tool, listed with or without `PLANVORTEX_MCP_ALLOW_AI`. Without
+  `id_integration` it answers with the organization's connected shops (a Drive or a feed never
+  shows up: which providers are shops comes from the provider catalogue, not from a list in this
+  server). With it, one page of that shop's products, read live: `search` instead of walking the
+  catalogue, `next_cursor` passed back exactly as given, out-of-stock products marked as not
+  choosable, and the exact shape to pass to `create_ai_plan`. It gives names, prices and
+  availability, never descriptions: that is enough to choose, and the server reads the rest when it
+  generates.
+- **`source.id_integration_catalog` on `create_ai_plan`**, exclusive with `id_account_catalog`.
+  Both at once, or neither, is refused before calling the API, with what to do instead.
+- **`unsupported_networks` in `get_planner_templates`**, and a line in `create_ai_plan` that says
+  to leave those accounts out: a YouTube account does not fit `from_images` or `from_catalog`.
+- **Advice for the shop's errors**, which used to share one sentence ("a person has to repair it in
+  the panel") that was wrong for half of them: 2212 is a firewall in front of the shop and no
+  reconnection fixes it, 2213 is the shop's hosting and may pass, 2219 is a shop connected moments
+  ago that is still being checked, and 2207, 2208, 2209 and 2211 each say what they are.
+- **Advice for 2120**, the plan refused because an account does not fit the template: it names the
+  accounts to drop, from the error itself, and says that nothing was charged.
+
+### Changed
+
+- **`planvortex` goes to `^0.13.0`**, the release with `integrations.products`. Same `^0.x` trap as
+  always: **publish `planvortex@0.13.0` first and refresh `package-lock.json` before tagging this
+  one.**
+
 ## [0.7.0] — 2026-09-25
 
 **A misspelled argument used to answer about a different organization, and nothing said so.** Every

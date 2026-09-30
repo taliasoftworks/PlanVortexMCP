@@ -1,5 +1,5 @@
 /**
- * Los planes de IA: cinco herramientas, y la única de este servidor que GASTA DINERO.
+ * Los planes de IA: seis herramientas, y la única de este servidor que GASTA DINERO.
  *
  * POR QUÉ ESTÁN AQUÍ, DESPUÉS DE HABER ESTADO FUERA A PROPÓSITO
  *
@@ -11,9 +11,9 @@
  * La fase 10 de `cambios-planvortex.md` pide lo contrario, y las dos cosas caben: el motivo cubre
  * `create`, no la lectura. Así que
  *
- *  - **las cuatro de lectura entran siempre.** No facturan nada, y sin ellas el modelo no puede
+ *  - **las cinco de lectura entran siempre.** No facturan nada, y sin ellas el modelo no puede
  *    siquiera explicar lo que costaría un plan antes de proponerlo, ni cuál de los que ya hizo
- *    funcionó (`get_ai_plan_results`).
+ *    funcionó (`get_ai_plan_results`), ni elegir los productos de una tienda (`list_store_products`).
  *  - **`create_ai_plan` necesita `PLANVORTEX_MCP_ALLOW_AI=1`**, que es la confirmación humana que
  *    la MRTR no da: la escribe una persona en su fichero de configuración, una vez, antes de que
  *    ningún agente arranque. Y como el gate actúa en el REGISTRO, apagado no está en `tools/list`.
@@ -31,7 +31,7 @@
  */
 import * as z from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
-import type { AiPlanCreateRequest, AiPlanResult } from "planvortex";
+import type { AiPlanCreateRequest, AiPlanResult, Integration } from "planvortex";
 import type { Context } from "../context.js";
 import { toolOk, ToolInputError } from "../errors.js";
 import { asLines, clampLimit, compactNumbers, paginationNote, snippet } from "../format/project.js";
@@ -107,6 +107,18 @@ function projectPlan(plan: {
 }
 
 /**
+ * En qué estado está una tienda, en una palabra. El 2219 no es un fallo —la tienda se conectó con el
+ * botón hace un momento y se está comprobando— y leerlo como `error 2219` manda al modelo a decirle
+ * al usuario que algo se ha roto.
+ */
+function storeState(integration: Integration): string {
+    if (!integration.enabled) return "disabled";
+    if (integration.connected) return "connected";
+    if (integration.error_code === 2219) return "being checked (connected moments ago)";
+    return `error ${integration.error_code ?? ""}: a person has to reconnect it in the panel`.trim();
+}
+
+/**
  * La nota de los resultados. Va SIEMPRE: los dos errores que evita —leer un plan sin `ranked` como
  * «el peor» y leer una métrica ausente como un cero— son justo los que un modelo comete sin ella.
  */
@@ -178,13 +190,126 @@ export function registerAiPlanTools(server: McpServer, ctx: Context): void {
                     .filter(Boolean)
                     .join(", "),
                 source_requires_any: (template.source_requires_any ?? []).join(", "),
+                //Las redes que no caben en un plan de esta plantilla (2120): sin la columna, el modelo
+                //mete la cuenta de YouTube en una semana de fotos de producto y se come el rechazo
+                unsupported_networks: (template.unsupported_networks ?? []).join(", "),
             }));
             return toolOk(
                 `${rows.length} planner templates.\n\n${asLines(rows)}\n\n` +
                     "generates_images false means the pictures come from the source and the plan " +
-                    "spends no image credits at all. Each generated image costs 70 credits.",
+                    "spends no image credits at all. Each generated image costs 70 credits. " +
+                    "Accounts on a network listed in unsupported_networks cannot be in a plan of " +
+                    "that template: leave them out of accounts. source_requires_any means exactly " +
+                    "one of those fields is needed.",
                 { templates: rows },
             );
+        },
+    );
+
+    //LAS TIENDAS, y el motivo de que esta herramienta exista: `from_catalog` desde una tienda pide los
+    //ids de SUS productos, y sin una forma de leerlos el modelo sólo puede inventárselos o pedirle al
+    //usuario que los copie de su WordPress. Sin `id_integration` contesta con las tiendas conectadas,
+    //igual que `list_destinations` sin tablero: el id de la tienda también hay que sacarlo de algún
+    //sitio, y una herramienta de integraciones entera para eso sería una más en cada listado.
+    //
+    //Nombre, precio y si se puede elegir; nada de la descripción. Para ELEGIR productos basta, la
+    //descripción la lee el servidor al generar el plan, y es texto de una web ajena que no hace falta
+    //meter en el contexto del modelo.
+    defineTool(
+        server,
+        ctx,
+        {
+            name: "list_store_products",
+            title: "List the products of a connected shop",
+            description:
+                "The products of a shop connected to the organization (a WooCommerce store), to " +
+                "choose the ones a from_catalog AI plan writes about. Without id_integration it " +
+                "lists the organization's connected shops, with the id to pass back. With it, one " +
+                "page of that shop's products, read live: search by text rather than walking the " +
+                "whole catalogue, and pass next_cursor back exactly as given. Out-of-stock products " +
+                "come marked and cannot be chosen. A product without a price has none to show, and " +
+                "a price is text to repeat as is, never a number to do maths with. Connecting a " +
+                "shop needs a person in the PlanVortex panel.",
+            inputSchema: z.object({
+                id_integration: z
+                    .string()
+                    .describe("A connected shop's id. Omit it to list the shops.")
+                    .optional(),
+                search: z.string().describe("Text to look for in the shop's catalogue.").optional(),
+                cursor: z.string().describe("next_cursor from the previous page, as given.").optional(),
+                limit: z.number().int().min(1).max(50).optional(),
+                id_organization: OrganizationArg,
+            }),
+            annotations: { readOnlyHint: true, openWorldHint: true },
+        },
+        async (args, context) => {
+            const idOrganization = await context.resolveOrganization(args.id_organization);
+
+            if (args.id_integration === undefined) {
+                //Las tiendas son las integraciones de un proveedor con `catalog`, y eso lo dice el
+                //catálogo de proveedores, no una lista de aquí: Shopify entrará sin tocar esto
+                const providers = await context.pv.integrations.providers();
+                const withCatalog = new Set<string>(
+                    providers.filter((provider) => provider.catalog).map((provider) => provider.provider),
+                );
+                const page = await context.pv.integrations.list(idOrganization);
+                const stores = page.data
+                    .filter((integration) => withCatalog.has(integration.provider))
+                    .map((integration) => ({
+                        id_integration: integration._id,
+                        name: integration.name,
+                        provider: integration.provider,
+                        url: integration.external_identifier,
+                        state: storeState(integration),
+                        prices: integration.config?.tax_location_missing
+                            ? "missing on taxable products: the store's tax setting hides them from the API"
+                            : undefined,
+                    }));
+                if (stores.length === 0) {
+                    return toolOk(
+                        "No shop is connected to this organization. Connecting one needs a person: " +
+                            "it is done in the PlanVortex panel, under Integrations.",
+                        { stores: [] },
+                    );
+                }
+                return toolOk(
+                    `${asLines(stores)}\n\nCall this tool again with one id_integration to read its products.`,
+                    { stores },
+                );
+            }
+
+            const page = await context.pv.integrations.products(idOrganization, args.id_integration, {
+                limit: clampLimit(args.limit),
+                ...(args.search === undefined ? {} : { search: args.search }),
+                ...(args.cursor === undefined ? {} : { cursor: args.cursor }),
+            });
+            const products = page.items.map((product) => ({
+                id: product.external_id,
+                name: snippet(product.name),
+                price: product.price,
+                available: product.available ? "yes" : "NO, out of stock: cannot be chosen",
+            }));
+            const lines = [
+                products.length === 0
+                    ? args.search === undefined
+                        ? "This shop has no published products."
+                        : "No product matches that search."
+                    : asLines(products),
+            ];
+            if (page.next_cursor !== undefined) {
+                lines.push(
+                    `There are more: call again with cursor ${page.next_cursor} (exactly as given), or narrow it with search.`,
+                );
+            }
+            lines.push(
+                `To plan a week with some of these, create_ai_plan takes template from_catalog and ` +
+                    `source { id_integration_catalog: "${args.id_integration}", products: [their ids, in ` +
+                    "the order of the week] }, up to the max_source_items of get_planner_templates.",
+            );
+            return toolOk(lines.join("\n\n"), {
+                products,
+                ...(page.next_cursor === undefined ? {} : { next_cursor: page.next_cursor }),
+            });
         },
     );
 
@@ -414,7 +539,11 @@ export function registerAiPlanTools(server: McpServer, ctx: Context): void {
                 "is standard, which generates its own images and is the most expensive. " +
                 "With a Pinterest account in the plan, pass its board in destinations (read them " +
                 "with list_destinations) and keep images on: a pin is never text alone, so a plan " +
-                "that would leave pins without an image is refused (2119) before anything is charged.",
+                "that would leave pins without an image is refused (2119) before anything is charged. " +
+                "Leave out accounts on a network in the template's unsupported_networks " +
+                "(get_planner_templates): a YouTube account does not fit from_images or from_catalog, " +
+                "and the plan is refused (2120). For from_catalog from a connected shop, take the " +
+                "shop and the product ids from list_store_products.",
             inputSchema: z.object({
                 prompt: z.string().min(1).describe("What the week is about, in the user's own words."),
                 accounts: z
@@ -447,14 +576,29 @@ export function registerAiPlanTools(server: McpServer, ctx: Context): void {
                             .string()
                             .describe("from_text. The article pasted by hand. Wins over url when both come.")
                             .optional(),
+                        id_integration_catalog: z
+                            .string()
+                            .describe(
+                                "from_catalog, from a connected shop: its id from list_store_products. " +
+                                    "Exclusive with id_account_catalog.",
+                            )
+                            .optional(),
                         id_account_catalog: z
                             .string()
-                            .describe("from_catalog. The account whose shop to read.")
+                            .describe(
+                                "from_catalog, from a Meta catalogue: the account whose catalogue to read.",
+                            )
                             .optional(),
-                        product_catalog_id: z.string().describe("from_catalog. The catalogue id.").optional(),
+                        product_catalog_id: z
+                            .string()
+                            .describe("from_catalog with id_account_catalog only: the Meta catalogue id.")
+                            .optional(),
                         products: z
                             .array(z.string())
-                            .describe("from_catalog. Product ids, in order.")
+                            .describe(
+                                "from_catalog. Product ids, in the order of the week (list_store_products " +
+                                    "for a shop). Out-of-stock ones are refused.",
+                            )
                             .optional(),
                         event_name: z
                             .string()
@@ -539,6 +683,25 @@ export function registerAiPlanTools(server: McpServer, ctx: Context): void {
                     `The "${template}" template needs a source. Call get_planner_templates to see ` +
                         "which fields it takes.",
                 );
+            }
+            //Las dos fuentes de `from_catalog` son EXCLUYENTES, y ninguna es un 2112 del servidor: los
+            //dos casos se dicen aquí con lo que hay que hacer, en vez de un viaje para decirlo peor
+            if (template === "from_catalog" && args.source) {
+                const store = args.source.id_integration_catalog !== undefined;
+                const meta = args.source.id_account_catalog !== undefined;
+                if (store && meta) {
+                    throw new ToolInputError(
+                        "from_catalog reads ONE catalogue: pass id_integration_catalog (a connected shop) " +
+                            "or id_account_catalog (a Meta catalogue), not both.",
+                    );
+                }
+                if (!store && !meta) {
+                    throw new ToolInputError(
+                        "from_catalog needs where the products come from: id_integration_catalog for a " +
+                            "connected shop (call list_store_products to get it and the product ids), or " +
+                            "id_account_catalog with product_catalog_id for a Meta catalogue.",
+                    );
+                }
             }
             if (args.options?.week_start && Number.isNaN(Date.parse(args.options.week_start))) {
                 throw new ToolInputError(

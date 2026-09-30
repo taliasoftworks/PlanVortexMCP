@@ -156,10 +156,9 @@ function advice(error: PlanVortexError): string {
                 "returns. This app only reaches its own organizations."
             );
         case "integration":
-            return (
-                "The integration is not usable. Connecting or repairing one needs a person in the " +
-                "PlanVortex panel; this server cannot do it."
-            );
+            return integrationAdvice(error);
+        case "ai_plan":
+            return aiPlanAdvice(error);
         case "connection":
         case "http":
             return "This looks transient. One retry is reasonable; more than one is not.";
@@ -391,6 +390,89 @@ function authAdvice(error: PlanVortexError): string {
                 "PLANVORTEX_CLIENT_ID and PLANVORTEX_CLIENT_SECRET of this server."
             );
     }
+}
+
+/**
+ * El rango `integration` (2200-2299), desglosado desde que una tienda es una integración: el consejo
+ * de siempre —«hace falta una persona en el panel»— es el bueno para una clave que la tienda ya no
+ * acepta, y el malo para un cortafuegos delante de ella (no lo arregla ninguna reconexión) o para una
+ * tienda recién conectada que se está comprobando (lo arregla esperar cinco segundos).
+ */
+function integrationAdvice(error: PlanVortexError): string {
+    switch (error.code) {
+        case 2200:
+            return (
+                "That integration does not exist in this organization. Call list_store_products " +
+                "without id_integration to get the ids of its connected shops."
+            );
+        case 2207:
+            return (
+                "That integration has no product catalogue: it is a Google Drive or a feed, not a " +
+                "shop. Call list_store_products without id_integration to see which ones are shops."
+            );
+        case 2208:
+            return (
+                "The shop's catalogue could not be read. If a cursor was passed, it has to be exactly " +
+                "the next_cursor of the previous page; otherwise one retry is reasonable, not a loop."
+            );
+        case 2209:
+            return (
+                "That shop is disabled in PlanVortex, so it cannot be read. A person has to enable it " +
+                "in the PlanVortex panel, under Integrations; this server cannot."
+            );
+        case 2211:
+            return (
+                "The shop rejected PlanVortex's key: it was deleted or changed in the shop's own " +
+                "WordPress. Do not retry. A person has to reconnect the shop in the PlanVortex panel."
+            );
+        case 2212:
+            return (
+                "A firewall or a security plugin in front of the shop blocked PlanVortex's server. It " +
+                "is not the key and not the request, so retrying or reconnecting will not help: the " +
+                "shop's hosting has to let PlanVortex's server through. Tell the user exactly that."
+            );
+        case 2213:
+            return (
+                "The shop did not answer, or failed on its side. That is the shop's hosting and it may " +
+                "be transient: one retry in a while is reasonable, a loop is not."
+            );
+        case 2219:
+            return (
+                "The shop was connected moments ago and its key is still being checked. Wait a few " +
+                "seconds and call again; if it lasts, a person has to reconnect it in the panel."
+            );
+        default:
+            return (
+                "The integration is not usable. Connecting or repairing one needs a person in the " +
+                "PlanVortex panel; this server cannot do it."
+            );
+    }
+}
+
+/**
+ * El rango `ai_plan` (2100-2199). El único que se desglosa es el 2120, porque es el único que el
+ * modelo arregla solo y sin preguntar a nadie: quitar del plan las cuentas que la plantilla no admite.
+ * El servidor las dice TODAS en `data.accounts`, y se le pasan tal cual.
+ */
+function aiPlanAdvice(error: PlanVortexError): string {
+    if (error.code === 2120) {
+        const accounts = Array.isArray(error.data["accounts"]) ? (error.data["accounts"] as unknown[]) : [];
+        const listed = accounts
+            .map((account) => {
+                const row = account as { _id?: unknown; social_network?: unknown };
+                return row._id ? `${String(row._id)} (${String(row.social_network ?? "?")})` : "";
+            })
+            .filter(Boolean);
+        return (
+            "Nothing was charged. That template cannot publish to some of the accounts" +
+            (listed.length > 0 ? `: ${listed.join(", ")}` : "") +
+            ". Remove them from accounts and call again, or pick another template; " +
+            "get_planner_templates lists each template's unsupported_networks."
+        );
+    }
+    return (
+        "Read the message above before retrying: most of these are not fixed by repeating " + "the same call."
+    );
 }
 
 /** Los permisos que el 520 adjunta en su `data` (`{permissions, client_permissions}`). */

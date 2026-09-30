@@ -70,11 +70,11 @@ describe("el gate de PLANVORTEX_MCP_ALLOW_AI", () => {
         await harness.close();
     });
 
-    it("con el gate encendido sí está, y son treinta y una", async () => {
+    it("con el gate encendido sí está, y son treinta y dos", async () => {
         const harness = await withServer({ allowAiPlans: true });
         const listed = (await harness.client.listTools()).tools.map((tool) => tool.name);
         expect(listed).toContain("create_ai_plan");
-        expect(listed).toHaveLength(31);
+        expect(listed).toHaveLength(32);
         await harness.close();
     });
 
@@ -251,6 +251,237 @@ describe("el ciclo de un plan", () => {
             arguments: { id_ai_plan: "plan-1" },
         });
         expect(textOf(result)).toContain("Poll this tool again");
+        await harness.close();
+    });
+});
+
+/**
+ * Las tiendas. `from_catalog` desde una tienda pide los ids de SUS productos, y sin esta herramienta
+ * el modelo sólo podría inventárselos. Lo que se fija: que sin tienda contesta con las tiendas (y
+ * sólo con las integraciones que tienen catálogo, según el catálogo de proveedores y no una lista de
+ * aquí), que lo agotado se dice, que el cursor se devuelve tal cual, y que el 2219 no se lee como un
+ * fallo.
+ */
+describe("list_store_products", () => {
+    const PROVIDERS = [
+        { provider: "google_drive", catalog: false },
+        { provider: "rss", catalog: false },
+        { provider: "woocommerce", catalog: true },
+    ];
+    const STORE = {
+        _id: "int-woo",
+        id_organization: "org-a",
+        id_client: "client-1",
+        provider: "woocommerce",
+        name: "Tienda Norte",
+        external_identifier: "https://tienda.example.com",
+        config: { url: "https://tienda.example.com", key_ending: "3f9a2c1", tax_location_missing: true },
+        enabled: true,
+        connected: true,
+        creation_date: "2026-09-28T10:00:00.000Z",
+    };
+
+    function catalog(integrations: object[]) {
+        return [
+            http.get(`${BASE_URL}/integration_providers`, () => HttpResponse.json({ providers: PROVIDERS })),
+            http.get(`${BASE_URL}/organizations/org-a/integrations`, () =>
+                HttpResponse.json({ integrations, total: integrations.length }),
+            ),
+        ];
+    }
+
+    it("es de lectura: está en el listado sin encender el gate", async () => {
+        const harness = await withServer();
+        const listed = (await harness.client.listTools()).tools.map((tool) => tool.name);
+        expect(listed).toContain("list_store_products");
+        await harness.close();
+    });
+
+    it("sin id_integration lista las TIENDAS, y ni un Drive ni un feed", async () => {
+        api.use(
+            organizations(ORG_A),
+            ...catalog([
+                STORE,
+                { ...STORE, _id: "int-drive", provider: "google_drive", name: "Drive" },
+                { ...STORE, _id: "int-new", name: "Tienda Sur", connected: false, error_code: 2219 },
+            ]),
+        );
+        const harness = await withServer();
+        const result = await harness.client.callTool({ name: "list_store_products", arguments: {} });
+        expect(isError(result)).toBe(false);
+        const text = textOf(result);
+        expect(text).toContain("id_integration: int-woo");
+        expect(text).not.toContain("int-drive");
+        //El 2219 no es un fallo: la tienda se conectó hace un momento
+        expect(text).toContain("being checked");
+        //Y los precios que la tienda esconde por su ajuste de impuestos se avisan antes de elegir
+        expect(text).toContain("tax setting");
+        await harness.close();
+    });
+
+    it("sin tiendas dice que conectar una necesita a una persona", async () => {
+        api.use(organizations(ORG_A), ...catalog([]));
+        const harness = await withServer();
+        const result = await harness.client.callTool({ name: "list_store_products", arguments: {} });
+        expect(textOf(result)).toContain("needs a person");
+        await harness.close();
+    });
+
+    it("con id_integration lee una página, marca lo agotado y devuelve el cursor tal cual", async () => {
+        let query = new URLSearchParams();
+        api.use(
+            organizations(ORG_A),
+            http.get(`${BASE_URL}/organizations/org-a/integrations/int-woo/products`, ({ request }) => {
+                query = new URL(request.url).searchParams;
+                return HttpResponse.json({
+                    items: [
+                        {
+                            external_id: "68",
+                            name: "Taza de cerámica",
+                            price: "14,52 € IVA incluido",
+                            available: true,
+                        },
+                        { external_id: "71", name: "Zapatillas", available: false },
+                    ],
+                    next_cursor: "p3",
+                });
+            }),
+        );
+        const harness = await withServer();
+        const result = await harness.client.callTool({
+            name: "list_store_products",
+            arguments: { id_integration: "int-woo", search: "taza", cursor: "p2" },
+        });
+        expect(isError(result)).toBe(false);
+        const text = textOf(result);
+        expect(query.get("search")).toBe("taza");
+        expect(query.get("cursor")).toBe("p2");
+        expect(text).toContain("id: 68");
+        expect(text).toContain("price: 14,52 € IVA incluido");
+        expect(text).toContain("NO, out of stock");
+        expect(text).toContain("cursor p3");
+        //Lo que hace útil la lista: cómo se pasa al plan
+        expect(text).toContain('id_integration_catalog: "int-woo"');
+        await harness.close();
+    });
+
+    it("un cortafuegos delante de la tienda no se lee como una clave mala", async () => {
+        api.use(
+            organizations(ORG_A),
+            http.get(`${BASE_URL}/organizations/org-a/integrations/int-woo/products`, () =>
+                HttpResponse.json(
+                    {
+                        code: 2212,
+                        message: "A firewall or security plugin in front of the store blocked the request",
+                    },
+                    { status: 400 },
+                ),
+            ),
+        );
+        const harness = await withServer();
+        const result = await harness.client.callTool({
+            name: "list_store_products",
+            arguments: { id_integration: "int-woo" },
+        });
+        expect(isError(result)).toBe(true);
+        const text = textOf(result);
+        expect(text).toContain("2212");
+        expect(text).toContain("hosting has to let PlanVortex's server through");
+        expect(text).not.toContain("reconnect the shop");
+        await harness.close();
+    });
+});
+
+describe("create_ai_plan desde una tienda", () => {
+    it("manda id_integration_catalog y los productos en el orden de la semana", async () => {
+        let body: Record<string, unknown> = {};
+        api.use(
+            organizations(ORG_A),
+            http.post(`${BASE_URL}/clients/client-1/organizations/org-a/ai_plans`, async ({ request }) => {
+                body = (await request.json()) as Record<string, unknown>;
+                return HttpResponse.json({
+                    ai_plan: { ...PLAN, template: "from_catalog" },
+                    estimate: ESTIMATE,
+                });
+            }),
+        );
+        const harness = await withServer({ allowAiPlans: true });
+        const result = await harness.client.callTool({
+            name: "create_ai_plan",
+            arguments: {
+                prompt: "Lo nuevo de la tienda",
+                accounts: ["acc-1"],
+                template: "from_catalog",
+                source: { id_integration_catalog: "int-woo", products: ["68", "71"] },
+            },
+        });
+        expect(isError(result)).toBe(false);
+        expect(body["source"]).toEqual({ id_integration_catalog: "int-woo", products: ["68", "71"] });
+        await harness.close();
+    });
+
+    it("las dos fuentes a la vez, o ninguna, fallan AQUÍ y dicen qué hacer", async () => {
+        api.use(organizations(ORG_A));
+        const harness = await withServer({ allowAiPlans: true });
+        const both = await harness.client.callTool({
+            name: "create_ai_plan",
+            arguments: {
+                prompt: "Lo nuevo",
+                accounts: ["acc-1"],
+                template: "from_catalog",
+                source: { id_integration_catalog: "int-woo", id_account_catalog: "acc-1", products: ["68"] },
+            },
+        });
+        expect(isError(both)).toBe(true);
+        expect(textOf(both)).toContain("not both");
+
+        const neither = await harness.client.callTool({
+            name: "create_ai_plan",
+            arguments: {
+                prompt: "Lo nuevo",
+                accounts: ["acc-1"],
+                template: "from_catalog",
+                source: { products: ["68"] },
+            },
+        });
+        expect(isError(neither)).toBe(true);
+        expect(textOf(neither)).toContain("list_store_products");
+        await harness.close();
+    });
+
+    it("el 2120 dice qué cuentas sobran, y que no se ha cobrado nada", async () => {
+        api.use(
+            organizations(ORG_A),
+            http.post(`${BASE_URL}/clients/client-1/organizations/org-a/ai_plans`, () =>
+                HttpResponse.json(
+                    {
+                        code: 2120,
+                        message:
+                            "An account of the AI plan is on a social network this planner template cannot publish to",
+                        data: {
+                            template: "from_catalog",
+                            accounts: [{ _id: "acc-yt", social_network: "youtube" }],
+                        },
+                    },
+                    { status: 400 },
+                ),
+            ),
+        );
+        const harness = await withServer({ allowAiPlans: true });
+        const result = await harness.client.callTool({
+            name: "create_ai_plan",
+            arguments: {
+                prompt: "Lo nuevo",
+                accounts: ["acc-1", "acc-yt"],
+                template: "from_catalog",
+                source: { id_integration_catalog: "int-woo", products: ["68"] },
+            },
+        });
+        expect(isError(result)).toBe(true);
+        const text = textOf(result);
+        expect(text).toContain("acc-yt (youtube)");
+        expect(text).toContain("Nothing was charged");
+        expect(text).toContain("unsupported_networks");
         await harness.close();
     });
 });

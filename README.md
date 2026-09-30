@@ -49,19 +49,19 @@ unread?"_
 
 ## What it can do
 
-Thirty tools, grouped by what they act on — and a thirty-first, `create_ai_plan`, that you
+Thirty-one tools, grouped by what they act on — and a thirty-second, `create_ai_plan`, that you
 switch on yourself (see [Generating with AI](#generating-with-ai)).
 
-| Group      | Tools                                                                                                                        |
-| ---------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| Context    | `list_organizations`, `list_accounts`, `get_plan_use`, `get_unread_counts`                                                   |
-| Publishing | `list_publications`, `get_publication`, `list_destinations`, `create_publication`, `update_publication`, `retry_publication` |
-| AI planner | `get_planner_templates`, `list_ai_plans`, `get_ai_plan`, `get_ai_plan_results`, and `create_ai_plan` when enabled            |
-| Media      | `upload_media`                                                                                                               |
-| Comments   | `list_comments`, `get_comment_thread`, `reply_to_comment`, `hide_comment`, `mark_comment_read`                               |
-| Messages   | `list_conversations`, `list_messages`, `send_message`                                                                        |
-| Numbers    | `get_dashboard_summary`, `get_publication_stats`, `get_top_publications`, `get_account_metrics`                              |
-| Catalog    | `get_social_limits`, `get_social_capabilities`, `create_connect_link`                                                        |
+| Group      | Tools                                                                                                                                    |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Context    | `list_organizations`, `list_accounts`, `get_plan_use`, `get_unread_counts`                                                               |
+| Publishing | `list_publications`, `get_publication`, `list_destinations`, `create_publication`, `update_publication`, `retry_publication`             |
+| AI planner | `get_planner_templates`, `list_store_products`, `list_ai_plans`, `get_ai_plan`, `get_ai_plan_results`, and `create_ai_plan` when enabled |
+| Media      | `upload_media`                                                                                                                           |
+| Comments   | `list_comments`, `get_comment_thread`, `reply_to_comment`, `hide_comment`, `mark_comment_read`                                           |
+| Messages   | `list_conversations`, `list_messages`, `send_message`                                                                                    |
+| Numbers    | `get_dashboard_summary`, `get_publication_stats`, `get_top_publications`, `get_account_metrics`                                          |
+| Catalog    | `get_social_limits`, `get_social_capabilities`, `create_connect_link`                                                                    |
 
 Plus three prompts — `weekly_plan`, `inbox_triage`, `publish_from_brief` — and four resources with
 the per-network limits, capabilities, comment matrix and your organizations.
@@ -70,7 +70,8 @@ the per-network limits, capabilities, comment matrix and your organizations.
 
 PlanVortex does not just schedule what you wrote: it can **write the week for you**. Its planner
 turns a theme, your own photos, an article or a connected shop's catalogue into a week of posts, and
-`get_planner_templates` publishes the five templates with what each one costs.
+`get_planner_templates` publishes the five templates with what each one costs. For a shop connected
+to PlanVortex (a WooCommerce store), `list_store_products` finds the products to write about.
 
 Reading is always available. **Creating a plan is not, unless you switch it on:**
 

@@ -13,7 +13,7 @@ import * as z from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
 import type { MessageInput } from "planvortex";
 import type { Context } from "../context.js";
-import { toolOk } from "../errors.js";
+import { toolOk, ToolInputError } from "../errors.js";
 import {
     asLines,
     clampLimit,
@@ -131,15 +131,32 @@ export function registerMessageTools(server: McpServer, ctx: Context): void {
                 "Send a private message to a contact. Two rules that cause most failures: on " +
                 "Facebook, Instagram and WhatsApp a free-form message only reaches someone within " +
                 "24 hours of their last message, and outside that window WhatsApp needs an " +
-                "approved template (pass template_name). Show the user what you are about to send " +
-                "and let them approve it first — this goes out under their brand.",
+                "approved template: pass template_name and template_language instead of text, and " +
+                "template_parameters with the values of its variables in order ({{1}}, {{2}}...). " +
+                "Show the user what you are about to send and let them approve it first — this " +
+                "goes out under their brand.",
             inputSchema: z.object({
                 id_account: z.string(),
                 id_contact: z.string(),
-                text: z.string().min(1).describe("The message, already approved by the user."),
+                text: z
+                    .string()
+                    .min(1)
+                    .describe("The message, already approved by the user. Not used with a template.")
+                    .optional(),
                 template_name: z
                     .string()
                     .describe("An approved WhatsApp template, for messages outside the 24h window.")
+                    .optional(),
+                template_language: z
+                    .string()
+                    .describe("The template's language code, as approved (for example es or en_US).")
+                    .optional(),
+                template_parameters: z
+                    .array(z.string().min(1))
+                    .describe(
+                        "Values for the template's body variables, in order: the first fills {{1}}. " +
+                            "No line breaks, tabs or more than four spaces in a row.",
+                    )
                     .optional(),
                 id_organization: OrganizationArg,
             }),
@@ -149,13 +166,36 @@ export function registerMessageTools(server: McpServer, ctx: Context): void {
         },
         async (args, context) => {
             const idOrganization = await context.resolveOrganization(args.id_organization);
-            const body: MessageInput = {
-                message_type: "simple_message",
-                text: args.text,
-                ...(args.template_name === undefined
-                    ? {}
-                    : { message_options: { template_name: args.template_name } }),
-            } as MessageInput;
+            //Hasta el 30-09-2026 una plantilla salía como `simple_message` con `template_name` al
+            //lado y SIN idioma: el servidor la trataba como texto libre y fuera de la ventana de 24 h
+            //Meta la rechazaba. Una plantilla es otro tipo de mensaje, con su idioma y sus variables.
+            const isTemplate = args.template_name !== undefined;
+            if (isTemplate && !args.template_language) {
+                throw new ToolInputError(
+                    "A template needs template_language too: the language code it was approved in " +
+                        "(for example es or en_US).",
+                );
+            }
+            if (!isTemplate && args.template_parameters !== undefined) {
+                throw new ToolInputError("template_parameters only go with template_name.");
+            }
+            if (!isTemplate && !args.text) {
+                throw new ToolInputError("Pass the text of the message, or a WhatsApp template.");
+            }
+            const body = (
+                isTemplate
+                    ? {
+                          message_type: "template_message",
+                          message_options: {
+                              template_name: args.template_name,
+                              template_language: args.template_language,
+                              ...(args.template_parameters === undefined
+                                  ? {}
+                                  : { template_parameters: args.template_parameters }),
+                          },
+                      }
+                    : { message_type: "simple_message", text: args.text }
+            ) as MessageInput;
 
             //El mismo mensaje dos veces a la misma persona es peor que una publicación duplicada:
             //no se puede borrar y lo ve un cliente (§ trampa 4).
@@ -163,7 +203,11 @@ export function registerMessageTools(server: McpServer, ctx: Context): void {
                 idOrganization,
                 args.id_account,
                 args.id_contact,
-                args.text,
+                //Las variables cuentan: el mismo recordatorio a la misma persona para OTRA cita no es
+                //un reintento, y el modelo lo tiene que poder mandar.
+                isTemplate
+                    ? JSON.stringify([args.template_name, args.template_language, args.template_parameters ?? []])
+                    : args.text,
             ]);
             const [message, alreadyExisted] = await context.dedupe.run(key, () =>
                 context.pv.messages.send(idOrganization, args.id_account, args.id_contact, body),

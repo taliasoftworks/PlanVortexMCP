@@ -144,6 +144,9 @@ export function projectPublicationDetail(publication: Publication): Record<strin
             code: detail.code,
             message: detail.message,
         })),
+        //Qué generó la IA (fase 16 del servidor, AI Act art. 50). Ausente = nada: se omite en vez de
+        //mandar dos `false`, que el modelo leería como una afirmación de que alguien lo comprobó.
+        ...(publication.ai_generated === undefined ? {} : { ai_generated: publication.ai_generated }),
     };
 }
 
@@ -152,6 +155,12 @@ export interface UploadView {
     name: string;
     file_type: string;
     file_format: string;
+    /**
+     * Presente sólo si la imagen la generó un modelo. Con esto el modelo puede recordarle al
+     * usuario que, si la imagen pasa por real, etiquetarla ante su audiencia es cosa suya (art.
+     * 50.4 del AI Act). La fecha no se proyecta: no le dice nada.
+     */
+    ai_generated?: { provider: string; model: string; id_ai_plan?: string };
 }
 
 /**
@@ -162,11 +171,21 @@ export interface UploadView {
  * conversación anterior ni para guardarla en un `resource` con `ttlMs` largo.
  */
 export function projectUpload(upload: Upload): UploadView {
+    const origin = upload.ai_generated;
     return {
         id: upload._id,
         name: upload.name,
         file_type: String(upload.file_type),
         file_format: String(upload.file_format),
+        ...(origin === undefined
+            ? {}
+            : {
+                  ai_generated: {
+                      provider: origin.provider,
+                      model: origin.model,
+                      ...(origin.id_ai_plan === undefined ? {} : { id_ai_plan: origin.id_ai_plan }),
+                  },
+              }),
     };
 }
 

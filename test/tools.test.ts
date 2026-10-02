@@ -884,6 +884,81 @@ describe("trampa 9 — conectar una cuenta necesita una persona", () => {
     });
 });
 
+/**
+ * La marca de IA (fase 16 del servidor, AI Act art. 50): el modelo sólo ve lo que `project.ts`
+ * nombra, así que un campo nuevo del API no llega a la conversación por sí solo.
+ */
+describe("get_publication dice qué generó la IA", () => {
+    function publicationWith(extra: object, file: object = {}) {
+        return {
+            _id: "pub-ai",
+            id_organization: "org-a",
+            id_account: "acc-1",
+            social_network: "instagram",
+            publication_type: "profile",
+            state: "draft",
+            text: "Nuestra colección de otoño",
+            files: [{ _id: "up-1", name: "ai-plan-1.png", file_type: "image", file_format: "png", ...file }],
+            publication_errors: [],
+            retries: 0,
+            creation_date: "2026-09-30T09:00:00.000Z",
+            ...extra,
+        };
+    }
+
+    it("con la imagen de IA: la publicación y el fichero lo dicen, con el modelo", async () => {
+        api.use(
+            organizations(ORG_A),
+            http.get(`${BASE_URL}/organizations/org-a/publish/pub-ai`, () =>
+                HttpResponse.json({
+                    publication: publicationWith(
+                        { ai_generated: { text: true, image: true } },
+                        {
+                            ai_generated: {
+                                provider: "openrouter",
+                                model: "google/gemini-3.1-flash-image",
+                                generated_at: "2026-09-30T09:00:00.000Z",
+                                id_ai_plan: "plan-1",
+                            },
+                        },
+                    ),
+                }),
+            ),
+        );
+        const harness = await withServer();
+        const text = textOf(
+            await harness.client.callTool({
+                name: "get_publication",
+                arguments: { id_publication: "pub-ai" },
+            }),
+        );
+        expect(text).toContain("ai_generated");
+        expect(text).toContain("google/gemini-3.1-flash-image");
+        expect(text).toContain("plan-1");
+        //La fecha no se proyecta: no le dice nada al modelo
+        expect(text).not.toContain("generated_at");
+        await harness.close();
+    });
+
+    it("sin nada de IA no aparece el campo (dos false se leerían como una comprobación)", async () => {
+        api.use(
+            organizations(ORG_A),
+            http.get(`${BASE_URL}/organizations/org-a/publish/pub-ai`, () =>
+                HttpResponse.json({ publication: publicationWith({}) }),
+            ),
+        );
+        const harness = await withServer();
+        const text = textOf(
+            await harness.client.callTool({
+                name: "get_publication",
+                arguments: { id_publication: "pub-ai" },
+            }),
+        );
+        expect(text).not.toContain("ai_generated");
+        await harness.close();
+    });
+});
+
 describe("trampa 6 — subir un fichero desde disco tiene allowlist", () => {
     it("sin PLANVORTEX_MCP_UPLOAD_DIRS no lee ninguna ruta", async () => {
         api.use(organizations(ORG_A));
@@ -1012,6 +1087,111 @@ describe("trampa 16 — una clave desconocida no puede contestar por otra organi
         });
         expect(isError(result)).toBe(false);
         expect(textOf(result)).not.toContain("It was not given");
+        await harness.close();
+    });
+});
+
+describe("send_message con plantilla de WhatsApp", () => {
+    const THREAD = `${BASE_URL}/organizations/org-a/accounts/acc-wa/messages/con-1`;
+    const SENT = {
+        _id: "msg-1",
+        id_account: "acc-wa",
+        message_type: "template_message",
+        message_errors: [],
+        message_options: { files: [], files_urls: [] },
+        read: false,
+        creation_date: "2026-09-30T10:00:00.000Z",
+    };
+
+    it("sale como template_message, con su idioma y sus variables en orden", async () => {
+        //Hasta el 30-09-2026 salía como simple_message y sin idioma: fuera de las 24 h, rechazada.
+        let body: Record<string, unknown> | undefined;
+        api.use(
+            organizations(ORG_A),
+            http.post(THREAD, async ({ request }) => {
+                body = (await request.json()) as Record<string, unknown>;
+                return HttpResponse.json({ message: SENT });
+            }),
+        );
+        const harness = await withServer();
+        const result = await harness.client.callTool({
+            name: "send_message",
+            arguments: {
+                id_account: "acc-wa",
+                id_contact: "con-1",
+                template_name: "recordatorio_cita",
+                template_language: "es",
+                template_parameters: ["María", "jueves 2 de octubre", "17:00"],
+            },
+        });
+        expect(isError(result)).toBe(false);
+        expect(body).toEqual({
+            message_type: "template_message",
+            message_options: {
+                template_name: "recordatorio_cita",
+                template_language: "es",
+                template_parameters: ["María", "jueves 2 de octubre", "17:00"],
+            },
+        });
+        await harness.close();
+    });
+
+    it("sin idioma no llama al servidor y dice qué falta", async () => {
+        api.use(organizations(ORG_A));
+        const harness = await withServer();
+        const result = await harness.client.callTool({
+            name: "send_message",
+            arguments: { id_account: "acc-wa", id_contact: "con-1", template_name: "recordatorio_cita" },
+        });
+        expect(isError(result)).toBe(true);
+        expect(textOf(result)).toContain("template_language");
+        await harness.close();
+    });
+
+    it("el mismo recordatorio para OTRA cita no se toma por un reintento", async () => {
+        let sent = 0;
+        api.use(
+            organizations(ORG_A),
+            http.post(THREAD, () => {
+                sent += 1;
+                return HttpResponse.json({ message: { ...SENT, _id: `msg-${sent}` } });
+            }),
+        );
+        const harness = await withServer();
+        const base = {
+            id_account: "acc-wa",
+            id_contact: "con-1",
+            template_name: "recordatorio_cita",
+            template_language: "es",
+        };
+        await harness.client.callTool({
+            name: "send_message",
+            arguments: { ...base, template_parameters: ["María", "jueves", "17:00"] },
+        });
+        await harness.client.callTool({
+            name: "send_message",
+            arguments: { ...base, template_parameters: ["María", "viernes", "10:00"] },
+        });
+        expect(sent).toBe(2);
+        await harness.close();
+    });
+
+    it("un mensaje de texto sigue saliendo como simple_message", async () => {
+        let body: Record<string, unknown> | undefined;
+        api.use(
+            organizations(ORG_A),
+            http.post(THREAD, async ({ request }) => {
+                body = (await request.json()) as Record<string, unknown>;
+                return HttpResponse.json({ message: { ...SENT, message_type: "simple_message" } });
+            }),
+        );
+        const harness = await withServer();
+        const result = await harness.client.callTool({
+            name: "send_message",
+            arguments: { id_account: "acc-wa", id_contact: "con-1", text: "Abrimos de 9 a 14" },
+        });
+        expect(isError(result)).toBe(false);
+        expect(body).toEqual({ message_type: "simple_message", text: "Abrimos de 9 a 14" });
         await harness.close();
     });
 });

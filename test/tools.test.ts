@@ -305,6 +305,153 @@ describe("una publicación creada CON errores no es una publicación publicada",
         await harness.close();
     });
 });
+describe("el reel que Instagram aún procesa: publishing es esperar, no reintentar", () => {
+    //Un vídeo que Meta tarda más de ~30 s en procesar vuelve en `publishing` con `pending_publish`
+    //y el servidor lo termina solo. Antes, update_publication contestaba «Create a new post
+    //instead», y con eso el modelo publicaba el vídeo dos veces.
+    function processing(extra: object = {}) {
+        return {
+            _id: "pub-reel",
+            creation_date: "2026-10-03T10:00:00.000Z",
+            files: [],
+            id_account: "acc-1",
+            id_organization: "org-a",
+            publication_errors: [],
+            publication_type: "reels",
+            retries: 0,
+            social_network: "instagram",
+            state: "publishing",
+            text: "Nuestro horno nuevo",
+            pending_publish: {
+                next_check: "2026-10-03T10:01:00.000Z",
+                deadline: "2026-10-03T10:10:00.000Z",
+            },
+            ...extra,
+        };
+    }
+
+    it("create_publication dice que se espere, y cuándo volver a mirar", async () => {
+        api.use(
+            organizations(ORG_A),
+            ...catalogHandlers,
+            http.post(`${BASE_URL}/organizations/org-a/accounts/acc-1/publish`, () =>
+                HttpResponse.json({ publication: processing() }),
+            ),
+        );
+        const harness = await withServer();
+        const text = textOf(
+            await harness.client.callTool({
+                name: "create_publication",
+                arguments: {
+                    id_account: "acc-1",
+                    social_network: "instagram",
+                    text: "Nuestro horno nuevo",
+                    publication_type: "reels",
+                },
+            }),
+        );
+        expect(text).toContain("STILL PROCESSING");
+        expect(text).toContain("Do NOT retry it and do NOT create it again");
+        expect(text).toContain("2026-10-03T10:01:00.000Z");
+        expect(text).toContain("2026-10-03T10:10:00.000Z");
+        await harness.close();
+    });
+
+    it("una publishing sin pending_publish no arrastra el párrafo", async () => {
+        api.use(
+            organizations(ORG_A),
+            http.get(`${BASE_URL}/organizations/org-a/publish/pub-reel`, () =>
+                HttpResponse.json({ publication: processing({ pending_publish: undefined }) }),
+            ),
+        );
+        const harness = await withServer();
+        const text = textOf(
+            await harness.client.callTool({
+                name: "get_publication",
+                arguments: { id_publication: "pub-reel" },
+            }),
+        );
+        expect(text).not.toContain("STILL PROCESSING");
+        await harness.close();
+    });
+
+    it("update_publication NO aconseja crearla otra vez mientras la red la procesa", async () => {
+        api.use(
+            organizations(ORG_A),
+            http.get(`${BASE_URL}/organizations/org-a/publish/pub-reel`, () =>
+                HttpResponse.json({ publication: processing() }),
+            ),
+        );
+        const harness = await withServer();
+        const result = await harness.client.callTool({
+            name: "update_publication",
+            arguments: { id_publication: "pub-reel", text: "Otro texto" },
+        });
+        expect(isError(result)).toBe(true);
+        const text = textOf(result);
+        expect(text).not.toContain("Create a new post instead");
+        expect(text).toContain("Do NOT create a new post");
+        expect(text).toContain("still processing");
+        await harness.close();
+    });
+
+    it("update_publication sobre una ya publicada sigue diciendo que se haga otra", async () => {
+        api.use(
+            organizations(ORG_A),
+            http.get(`${BASE_URL}/organizations/org-a/publish/pub-reel`, () =>
+                HttpResponse.json({
+                    publication: processing({ state: "sended", pending_publish: undefined }),
+                }),
+            ),
+        );
+        const harness = await withServer();
+        const text = textOf(
+            await harness.client.callTool({
+                name: "update_publication",
+                arguments: { id_publication: "pub-reel", text: "Otro texto" },
+            }),
+        );
+        expect(text).toContain("Create a new post instead");
+        await harness.close();
+    });
+
+    it("el 921 del servidor con data.state publishing no se explica como «ya salió»", async () => {
+        //La carrera: al leerla seguía en `ready`, y cuando llega el PUT el job ya la ha mandado a
+        //Instagram y Meta la está procesando. El servidor contesta 921 con `data.state`.
+        api.use(
+            organizations(ORG_A),
+            http.get(`${BASE_URL}/organizations/org-a/publish/pub-reel`, () =>
+                HttpResponse.json({
+                    publication: processing({ state: "ready", pending_publish: undefined }),
+                }),
+            ),
+            http.put(`${BASE_URL}/organizations/org-a/publish/pub-reel`, () =>
+                HttpResponse.json(
+                    {
+                        code: 921,
+                        message: "Can't update a publication already sended",
+                        data: {
+                            state: "publishing",
+                            reason: "la red social la está procesando; se podrá editar si falla",
+                        },
+                    },
+                    { status: 400 },
+                ),
+            ),
+        );
+        const harness = await withServer();
+        const result = await harness.client.callTool({
+            name: "update_publication",
+            arguments: { id_publication: "pub-reel", publish_date: "2026-10-04T10:00:00.000Z" },
+        });
+        expect(isError(result)).toBe(true);
+        const text = textOf(result);
+        expect(text).toContain("has NOT failed");
+        expect(text).not.toContain("has already gone out");
+        await harness.close();
+    });
+});
+
 describe("las publicaciones son ilimitadas, y el agente tiene que saberlo", () => {
     it("get_plan_use no deja el contador de publicaciones sin techo y sin explicación", async () => {
         //`asLines` se come los `undefined`, así que desde que el servidor dejó de mandar

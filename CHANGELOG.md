@@ -4,6 +4,31 @@ All notable changes to `planvortex-mcp` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.1] — 2026-10-03
+
+**A slow Instagram video no longer gets published twice.** When Meta takes more than ~30 seconds
+to process a video, the post comes back in state `publishing` and PlanVortex finishes it by itself
+within 10 minutes. The server told integrators to wait; the MCP told the model the opposite.
+
+### Fixed
+
+- **`update_publication` on a post in state `publishing`** answered "Create a new post instead",
+  which for a video Instagram was still processing meant publishing it twice. It now says the post
+  has not failed, that PlanVortex will publish it by itself, and not to create it again or retry
+  it. A post that has really gone out (`sended`) still gets the old advice.
+- **Error 921 from the server** was always explained as "this post has already gone out". When
+  its `data.state` is `publishing` it now says the network is still processing the video, and to
+  wait.
+
+### Changed
+
+- `create_publication`, `retry_publication` and `get_publication` add a paragraph when the post is
+  waiting on the network (`pending_publish`): it is not a failure, when to check again, and the
+  latest moment PlanVortex will keep waiting.
+- `retry_publication` says it is for failed posts only, and that on Instagram error 999 (the
+  network ran out of time) is worth retrying while 998 (it rejected the file) is not, until the
+  file changes.
+
 ## [0.9.0] — 2026-10-02
 
 **WhatsApp templates go out as templates.** `send_message` sent a template as free text with its

@@ -179,7 +179,8 @@ function advice(error: PlanVortexError): string {
  * Tres códigos del rango no se arreglan tocando el post:
  *
  * - **917**: ese id no existe (o está borrado). Se busca otro, no se reescribe nada.
- * - **921**: ya salió. Editar una publicación enviada no es posible en ninguna red.
+ * - **921**: ya salió. Editar una publicación enviada no es posible en ninguna red. O todavía no:
+ *   la red está procesando su vídeo (`data.state` = `publishing`), y entonces se espera.
  * - **926**: el tope por cuenta y mes, que es una red de seguridad y no un cupo de plan: sigue
  *   viviendo en el rango de publicaciones, así que reintentar falla igual por mucho que se
  *   acorte el texto. El **924** que había aquí era el cupo MENSUAL del plan, y el servidor lo
@@ -251,6 +252,18 @@ function publicationAdvice(error: PlanVortexError): string {
                 "id. Call list_publications and take an id from there."
             );
         case 921:
+            //El mismo código para dos cosas opuestas: ya salió, o la red aún está procesando el
+            //vídeo (el reel de Instagram que tarda, `data.state` = `publishing`). En la segunda,
+            //el consejo de la primera —«hazla nueva»— publica el vídeo dos veces.
+            if (error.data["state"] === "publishing") {
+                return (
+                    "This post has NOT failed: the network is still processing its video, and " +
+                    "PlanVortex will publish it by itself within a few minutes. It cannot be edited " +
+                    "meanwhile. Do not retry it and do not create it again: either would publish the " +
+                    "video twice. Check it with get_publication; if it ends in withErrors, it can be " +
+                    "edited then."
+                );
+            }
             return (
                 "This post has already gone out, and a published post cannot be edited or " +
                 "rescheduled through PlanVortex. Do not retry. If the user wants a different text, " +

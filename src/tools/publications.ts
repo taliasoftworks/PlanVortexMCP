@@ -10,7 +10,7 @@
  */
 import * as z from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
-import type { PublicationInput } from "planvortex";
+import type { Publication, PublicationInput } from "planvortex";
 import type { Context } from "../context.js";
 import { toolOk, ToolInputError } from "../errors.js";
 import {
@@ -37,6 +37,36 @@ const PublicationView = z.object({
     errors: z.number(),
     url: z.string().optional(),
 });
+
+/**
+ * EL REEL QUE TARDA. Instagram procesa un vídeo antes de dejar publicarlo, y si Meta tarda más de
+ * los ~30 s que espera la petición, la publicación vuelve en `publishing` con `pending_publish` y
+ * el servidor la termina solo, preguntando una vez por minuto durante 10 minutos como mucho. El
+ * reflejo de un modelo ante un «publishing» que no avanza es reintentar o crearla otra vez, y las
+ * dos cosas publican el vídeo dos veces: esto es lo que se lo impide.
+ *
+ * `planvortex` 0.14 todavía no tipa el campo, pero llega en la respuesta igual. Cuando la
+ * dependencia suba a la versión que lo tipa, esto pasa a ser `publication.pending_publish`.
+ */
+type PendingPublish = { next_check?: string; deadline?: string };
+
+function pendingPublish(publication: Publication): PendingPublish | undefined {
+    return (publication as Publication & { pending_publish?: PendingPublish }).pending_publish;
+}
+
+/** El párrafo que dice «espera», o nada si la publicación no está esperando a la red */
+function stillProcessingNote(publication: Publication): string {
+    const pending = pendingPublish(publication);
+    if (publication.state !== "publishing" || !pending) {
+        return "";
+    }
+    return (
+        "\n\nThe network is STILL PROCESSING this video, and PlanVortex will publish it by itself: " +
+        `it checks again about once a minute${pending.deadline ? `, until ${pending.deadline} at the latest` : ""}. ` +
+        "This is not a failure. Do NOT retry it and do NOT create it again: either would publish " +
+        `the video twice. Check it with get_publication${pending.next_check ? ` after ${pending.next_check}` : ""}.`
+    );
+}
 
 const DestinationView = z.object({
     id: z.string(),
@@ -112,7 +142,7 @@ export function registerPublicationTools(server: McpServer, ctx: Context): void 
             const idOrganization = await context.resolveOrganization(args.id_organization);
             const publication = await context.pv.publications.get(idOrganization, args.id_publication);
             const detail = projectPublicationDetail(publication);
-            return toolOk(asLines([detail]));
+            return toolOk(`${asLines([detail])}${stillProcessingNote(publication)}`);
         },
     );
 
@@ -194,6 +224,9 @@ export function registerPublicationTools(server: McpServer, ctx: Context): void 
                 "On Pinterest a pin needs things no other network asks for: a board " +
                 "(destination_id, from list_destinations), at least one image or video — a pin is " +
                 "never text alone — and, if it should lead somewhere, the URL in link. " +
+                "An Instagram video can come back in state publishing while the network processes " +
+                "it: that is not a failure, PlanVortex finishes it by itself within minutes, and " +
+                "creating it again would publish it twice. " +
                 "Always show the user what you are about to publish and let them confirm it: this " +
                 "posts publicly under their brand.",
             inputSchema: z.object({
@@ -340,7 +373,7 @@ export function registerPublicationTools(server: McpServer, ctx: Context): void 
                     : `\n\nIt was SAVED but it will NOT go out as it is:\n` +
                       details.map((detail) => `- [${detail.code}] ${detail.message}`).join("\n") +
                       `\n\nFix it with update_publication; nothing has been sent to the network.`;
-            return toolOk(`${preface}${asLines([view])}${why}`, {
+            return toolOk(`${preface}${asLines([view])}${why}${stillProcessingNote(publication)}`, {
                 publication: view,
                 already_existed: alreadyExisted,
             });
@@ -379,10 +412,24 @@ export function registerPublicationTools(server: McpServer, ctx: Context): void 
         async (args, context) => {
             const idOrganization = await context.resolveOrganization(args.id_organization);
             const current = await context.pv.publications.get(idOrganization, args.id_publication);
-            if (current.state === "sended" || current.state === "publishing") {
+            if (current.state === "sended") {
                 throw new ToolInputError(
-                    `This post is already ${current.state === "sended" ? "published" : "being published"} ` +
-                        "and cannot be edited. Create a new post instead.",
+                    "This post is already published and cannot be edited. Create a new post instead.",
+                );
+            }
+            //`publishing` NO es «ya salió»: crear otra aquí era el consejo que publicaba dos veces
+            //el reel que Instagram aún estaba procesando.
+            if (current.state === "publishing") {
+                throw new ToolInputError(
+                    pendingPublish(current)
+                        ? "This post cannot be edited right now: the network is still processing its " +
+                              "video, and PlanVortex will publish it by itself within a few minutes. Do " +
+                              "NOT create a new post and do NOT retry it: either would publish the video " +
+                              "twice. Check it with get_publication; if it ends in withErrors, it can be " +
+                              "edited then."
+                        : "This post is being published right now and cannot be edited. Do NOT create " +
+                              "a new post: it may already be on its way. Check it with get_publication " +
+                              "in a minute.",
                 );
             }
             if (args.destination_id !== undefined || args.link !== undefined) {
@@ -438,9 +485,11 @@ export function registerPublicationTools(server: McpServer, ctx: Context): void 
             name: "retry_publication",
             title: "Retry a failed post",
             description:
-                "Ask PlanVortex to try a failed post again. Read get_publication first: if it " +
-                "failed because the text is too long or the account is disconnected, retrying " +
-                "changes nothing until that is fixed.",
+                "Ask PlanVortex to try a failed post again (state withErrors only: a post in state " +
+                "publishing has not failed, it is still on its way). Read get_publication first: if " +
+                "it failed because the text is too long or the account is disconnected, retrying " +
+                "changes nothing until that is fixed. On Instagram, error 999 (the network ran out " +
+                "of time) is worth retrying; 998 (it rejected the file) is not, until the file changes.",
             inputSchema: z.object({
                 id_publication: z.string(),
                 id_organization: OrganizationArg,
@@ -453,10 +502,13 @@ export function registerPublicationTools(server: McpServer, ctx: Context): void 
             const idOrganization = await context.resolveOrganization(args.id_organization);
             const result = await context.pv.publications.retry(idOrganization, args.id_publication);
             const view = projectPublication(result.publication);
-            return toolOk(`${asLines([view])}\n\nretries allowed: ${result.max_retries}`, {
-                publication: view,
-                max_retries: result.max_retries,
-            });
+            return toolOk(
+                `${asLines([view])}${stillProcessingNote(result.publication)}\n\nretries allowed: ${result.max_retries}`,
+                {
+                    publication: view,
+                    max_retries: result.max_retries,
+                },
+            );
         },
     );
 }

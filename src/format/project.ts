@@ -81,6 +81,21 @@ export interface AccountView {
     error_code: number;
     /** Lo que de verdad se pregunta: ¿puedo publicar con esta cuenta ahora mismo? */
     healthy: boolean;
+    /**
+     * Sólo en un PERFIL PERSONAL de LinkedIn, y sólo a `true`. Publica y tiene estadísticas, pero
+     * no bandeja de comentarios (error 2600): sin esto el modelo no tiene forma de saber, mirando
+     * el listado, cuál de las cuentas de LinkedIn es la persona y cuál la página.
+     */
+    personal_profile?: true;
+}
+
+/**
+ * `extra_data` leído a mano: el `Account` de `planvortex` 0.14 todavía no lo tipa (llega con la
+ * siguiente), y el servidor lo manda igual.
+ */
+function isPersonalProfile(account: Account): boolean {
+    const extra = (account as { extra_data?: { is_personal_profile?: unknown } }).extra_data;
+    return extra?.is_personal_profile === true;
 }
 
 export function projectAccount(account: Account): AccountView {
@@ -92,6 +107,7 @@ export function projectAccount(account: Account): AccountView {
         ...(account.followers_count === undefined ? {} : { followers: account.followers_count }),
         error_code: account.error_code,
         healthy: !account.error_code,
+        ...(isPersonalProfile(account) ? { personal_profile: true as const } : {}),
     };
 }
 

@@ -104,7 +104,8 @@ export function registerCommentTools(server: McpServer, ctx: Context): void {
                 "comments only exist in the PlanVortex inbox, so use list_comments there. Slack " +
                 "and Pinterest have no comment inbox at all — a Slack thread is not read by " +
                 "PlanVortex, and Pinterest does not expose a pin's comments — so do not try, and " +
-                "do not retry: it is not a temporary failure.",
+                "do not retry: it is not a temporary failure. Neither does a LinkedIn personal " +
+                "profile (personal_profile in list_accounts): only LinkedIn pages have comments.",
             inputSchema: z.object({
                 id_publication: z.string().describe("The post whose thread to read.").optional(),
                 id_account: z

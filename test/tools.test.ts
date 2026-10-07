@@ -1358,3 +1358,76 @@ describe("send_message con plantilla de WhatsApp", () => {
         await harness.close();
     });
 });
+
+describe("linkedin — el perfil personal publica pero no tiene bandeja", () => {
+    const PROFILE = {
+        _id: "acc-profile",
+        name: "Ana López",
+        social_network: "linkedin",
+        error_code: 0,
+        deleted: false,
+        extra_data: { is_personal_profile: true },
+    };
+    const PAGE = {
+        _id: "acc-page",
+        name: "Ana López Estudio",
+        social_network: "linkedin",
+        error_code: 0,
+        deleted: false,
+        extra_data: { is_personal_profile: false },
+    };
+
+    it("list_accounts dice cuál es el perfil, y sólo en el perfil", async () => {
+        //Perfil y página suelen llamarse casi igual. Sin la marca, el modelo no tiene forma de
+        //saber a cuál de las dos puede pedirle comentarios.
+        api.use(
+            organizations(ORG_A),
+            http.get(`${BASE_URL}/organizations/org-a/accounts`, () =>
+                HttpResponse.json(paged("accounts", [PROFILE, PAGE])),
+            ),
+        );
+        const harness = await withServer();
+        const result = await harness.client.callTool({ name: "list_accounts", arguments: {} });
+        expect(isError(result)).toBe(false);
+        const accounts = (result.structuredContent as { accounts: { id: string; personal_profile?: boolean }[] }).accounts;
+        expect(accounts.find((e) => e.id === "acc-profile")?.personal_profile).toBe(true);
+        expect(accounts.find((e) => e.id === "acc-page")).not.toHaveProperty("personal_profile");
+        await harness.close();
+    });
+
+    it("el 2600 manda a las páginas, no a reintentar ni a reescribir", async () => {
+        //Con `planvortex` 0.14 el 2600 llega SIN familia y caía en el consejo genérico. Y el 945,
+        //su versión por red, caía en el de `publication`: «corrige el post».
+        api.use(
+            organizations(ORG_A),
+            http.get(`${BASE_URL}/organizations/org-a/publish/pub-1/comments`, () =>
+                HttpResponse.json(
+                    {
+                        code: 2600,
+                        message: "This account has no comment inbox, although its social network has one",
+                        data: { social_network: "linkedin", id_account: "acc-profile" },
+                    },
+                    { status: 400 },
+                ),
+            ),
+        );
+        const harness = await withServer();
+        const result = await harness.client.callTool({
+            name: "get_comment_thread",
+            arguments: { id_publication: "pub-1" },
+        });
+        expect(isError(result)).toBe(true);
+        const text = textOf(result);
+        expect(text).toContain("personal profile");
+        expect(text).toContain("do not retry");
+        expect(text).toContain("list_accounts");
+        expect(text).not.toContain("problem with the post itself");
+        await harness.close();
+    });
+
+    it("el 945 tampoco es «corrige el post»", () => {
+        const text = explainError(new PlanVortexError(945, "This social network doesn't allow comments"));
+        expect(text).toContain("Do not retry");
+        expect(text).not.toContain("problem with the post itself");
+    });
+});

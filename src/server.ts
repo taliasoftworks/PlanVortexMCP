@@ -45,6 +45,10 @@ without it the pin is saved with an error and never goes out. A pin is always an
 never text alone, and the URL it should lead to goes in link, not in the text. Pinterest has no
 comment inbox either: its API does not expose a pin's comments.
 
+On LinkedIn one person can have two kinds of account: their personal profile (personal_profile in
+list_accounts) and the pages they manage. Both publish, but only pages have comments: LinkedIn does
+not let any app read the comments on a personal profile.
+
 {{AI_PLANS}}
 
 {{CONNECTION}}Two things to know before you start.

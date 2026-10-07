@@ -63,7 +63,8 @@ export function registerContextTools(server: McpServer, ctx: Context): void {
                 "The social accounts connected to an organization: network, name, follower count " +
                 "and whether the connection is broken. An account with error_code other than 0 " +
                 "cannot publish until a person reconnects it, and that is usually the answer to " +
-                "'why did this post not go out'.",
+                "'why did this post not go out'. On LinkedIn, personal_profile marks the person's " +
+                "own profile, as opposed to the pages they manage.",
             inputSchema: z.object({
                 id_organization: OrganizationArg,
                 social_network: z
@@ -87,6 +88,10 @@ export function registerContextTools(server: McpServer, ctx: Context): void {
                         followers: z.number().optional(),
                         error_code: z.number(),
                         healthy: z.boolean(),
+                        personal_profile: z
+                            .literal(true)
+                            .describe("A LinkedIn personal profile: it publishes, but has no comment inbox.")
+                            .optional(),
                     }),
                 ),
                 total: z.number(),

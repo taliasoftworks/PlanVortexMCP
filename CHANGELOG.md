@@ -4,6 +4,20 @@ All notable changes to `planvortex-mcp` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] — 2026-10-07
+
+**LinkedIn personal profiles.** LinkedIn now connects the personal profile of whoever authorizes
+as well as the pages they manage. A profile publishes, but it has no comment inbox: LinkedIn does
+not let any app read the comments on a profile. The assistant is told so in three places:
+
+- `list_accounts` marks the profile with `personal_profile: true`, so it can tell the person from a
+  page that is usually named almost the same.
+- The server instructions and `get_comment_thread` say that only LinkedIn pages have comments.
+- Error 2600 (this account has no inbox) gets its own advice: do not retry, and look for the
+  LinkedIn pages in `list_accounts`. With `planvortex` 0.14 that code has no family, so it used to
+  get the generic advice. Error 945 (the whole network has no comments) no longer gets the
+  publication advice either, which told the model to fix the post.
+
 ## [0.10.0] — 2026-10-07
 
 **A hosted, multi-user mode.** `planvortex-mcp --hosted` (or `PLANVORTEX_MCP_MODE=hosted`) serves

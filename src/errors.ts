@@ -111,6 +111,12 @@ function advice(error: PlanVortexError, asUser: boolean): string {
     ) {
         return rateAdvice(error);
     }
+    //Los dos «aquí no hay comentarios», también por código. El 2600 nació fuera de todo rango
+    //—con `planvortex` 0.14 llega SIN familia—, y el 945 cae en `publication`, cuyo consejo por
+    //defecto es «corrige el post»: en una bandeja eso no significa nada y manda a reescribir.
+    if (error.code === 945 || error.code === 2600) {
+        return noCommentsAdvice(error);
+    }
     switch (error.family) {
         case "publication":
             //900-996, y no todo lo que hay dentro es «arregla el post»: el rango mete también un
@@ -256,6 +262,32 @@ function rateAdvice(error: PlanVortexError): string {
         "Call get_social_limits for the per-hour and per-network daily caps."
     );
 }
+/**
+ * No hay comentarios que leer ni a los que responder: ni es transitorio ni hay nada que corregir.
+ *
+ * - **945**: la RED no tiene comentarios en PlanVortex (TikTok, WhatsApp, Slack, Pinterest).
+ * - **2600**: la red sí, pero ESTA CUENTA no. Hoy sólo un perfil personal de LinkedIn: LinkedIn no
+ *   deja a ninguna app leer los comentarios de un perfil, sólo los de una página. El consejo útil
+ *   es mandar a las páginas, porque quien pregunta por «los comentarios de LinkedIn» casi siempre
+ *   tiene alguna conectada.
+ */
+function noCommentsAdvice(error: PlanVortexError): string {
+    if (error.code === 2600) {
+        return (
+            "This account has no comment inbox: it is a LinkedIn personal profile, and LinkedIn does " +
+            "not let any app read the comments on a profile, only on a page. It is not a temporary " +
+            "failure and nothing in the request is wrong, so do not retry, here or with other posts of " +
+            "this account. Call list_accounts: the LinkedIn accounts without personal_profile are " +
+            "pages, and those do have comments."
+        );
+    }
+    return (
+        "This social network has no comments in PlanVortex, so there is nothing to read or reply to " +
+        "here. Do not retry. Call get_social_capabilities to see which connected networks have " +
+        "comments."
+    );
+}
+
 function publicationAdvice(error: PlanVortexError, asUser: boolean): string {
     switch (error.code) {
         case 917:

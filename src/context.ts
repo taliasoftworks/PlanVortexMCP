@@ -46,6 +46,23 @@ export interface Context {
      * la organización: `/clients_organizations` trae cada cliente con las suyas dentro.
      */
     resolveClient(idOrganization: string): Promise<string>;
+    /**
+     * Quien quiere saber cómo acabó cada herramienta. Sólo lo da el modo alojado, para su línea de
+     * log por llamada; en stdio y `--http` no escucha nadie y no se escribe nada nuevo.
+     */
+    readonly observeTool?: ((outcome: ToolOutcome) => void) | undefined;
+}
+
+/**
+ * Lo que deja una llamada a una herramienta: cuál, cómo acabó y cuánto tardó. Ni los argumentos ni
+ * la respuesta, que llevan lo que escribió la persona y lo que comentaron terceros.
+ */
+export interface ToolOutcome {
+    tool: string;
+    ok: boolean;
+    /** El código de PlanVortex, cuando el fallo vino de la API. */
+    code?: number;
+    ms: number;
 }
 
 /**
@@ -113,6 +130,8 @@ export interface ContextParts {
     dedupe: DedupeCache;
     /** Los clientes con sus organizaciones raíz. Quien la da decide cuánto se cachea y de quién. */
     loadClients: () => Promise<ClientWithOrganizations[]>;
+    /** Ver {@link Context.observeTool}. */
+    observeTool?: (outcome: ToolOutcome) => void;
 }
 
 /**
@@ -216,5 +235,6 @@ export function assembleContext(parts: ContextParts): Context {
         resolveOrganization,
         listOrganizations,
         resolveClient,
+        ...(parts.observeTool === undefined ? {} : { observeTool: parts.observeTool }),
     };
 }

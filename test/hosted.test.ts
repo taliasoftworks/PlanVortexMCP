@@ -14,7 +14,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { http, HttpResponse } from "msw";
 import { SignJWT, UnsecuredJWT, decodeJwt, exportJWK, generateKeyPair } from "jose";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
-import { BASE_URL, api, isError, paged, testConfig, textOf } from "./helpers.js";
+import { BASE_URL, api, isError, paged, testConfig, textOf, withServer } from "./helpers.js";
 import { ConfigError, DEFAULT_CONNECTOR_CLIENTS, loadConfig, type Config } from "../src/config.js";
 import { serveHosted, type HostedHandle } from "../src/hosted.js";
 import { setLogLevel } from "../src/log.js";
@@ -683,6 +683,145 @@ describe("ni un token en los logs (trampa 3 de oauth.ts)", () => {
         for (const secret of [good, wrongAudience, exchangedToken("alice"), EXCHANGE_SECRET]) {
             expect(log).not.toContain(secret);
         }
+    });
+});
+
+/** Todo lo que el servidor escribe en `stderr` desde aquí, partido en líneas. */
+function captureLog(): () => string[] {
+    const written: string[] = [];
+    vi.spyOn(process.stderr, "write").mockImplementation((chunk: string | Uint8Array) => {
+        written.push(String(chunk));
+        return true;
+    });
+    return () => written.join("").split("\n").filter(Boolean);
+}
+
+/** Las líneas `[planvortex-mcp] <nivel>: <mensaje> {json}` de ese nivel y mensaje, ya leídas. */
+function entries(lines: string[], level: string, message: string): Record<string, unknown>[] {
+    const prefix = `[planvortex-mcp] ${level}: ${message} `;
+    return lines
+        .filter((line) => line.startsWith(prefix))
+        .map((line) => JSON.parse(line.slice(prefix.length)) as Record<string, unknown>);
+}
+
+describe("una línea por llamada (la pidió la prueba de punta a punta de la fase 2)", () => {
+    it("cada herramienta deja una en info: quién, cuál, cómo acabó y cuánto tardó", async () => {
+        const lines = captureLog();
+        await start();
+        setLogLevel("info");
+        const azp = "https://claude.ai/oauth/mcp-oauth-client-metadata";
+        const token = await assistantToken({ sub: "alice", azp });
+        const client = await connect(token, { modern: true });
+        await client.callTool({ name: "list_organizations", arguments: {} });
+        await vi.waitFor(() => expect(entries(lines(), "info", "llamada")).toHaveLength(1));
+        setLogLevel("silent");
+
+        const [entry] = entries(lines(), "info", "llamada");
+        expect(entry).toMatchObject({
+            sub: "alice",
+            client: azp,
+            method: "tools/call",
+            tool: "list_organizations",
+            outcome: "ok",
+            status: 200,
+            ms: expect.any(Number),
+        });
+        //El canje lo hizo la conexión, no esta llamada.
+        expect(entry).not.toHaveProperty("exchange_ms");
+        //Lo demás (descubrimiento, listados) no sale en info: sería ruido en cada conversación.
+        expect(lines().filter((line) => line.includes("] info: "))).toHaveLength(1);
+        //Ni tokens ni lo que contestó la herramienta.
+        const all = lines().join("\n");
+        for (const secret of [token, exchangedToken("alice"), "Panadería de Alicia"]) {
+            expect(all).not.toContain(secret);
+        }
+    });
+
+    it("un fallo de la API sale como error y con su código, también en la era 2025, que no manda Mcp-Method", async () => {
+        api.use(
+            http.get(`${BASE_URL}/organizations/:id/accounts`, () =>
+                HttpResponse.json(
+                    { code: 703, message: "The account has no permissions on the network", data: {} },
+                    { status: 400 },
+                ),
+            ),
+        );
+        const lines = captureLog();
+        await start();
+        setLogLevel("info");
+        const client = await connect(await assistantToken({ sub: "bob" }));
+        await client.callTool({ name: "list_accounts", arguments: {} });
+        await vi.waitFor(() => expect(entries(lines(), "info", "llamada")).toHaveLength(1));
+        setLogLevel("silent");
+
+        expect(entries(lines(), "info", "llamada")[0]).toMatchObject({
+            sub: "bob",
+            method: "tools/call",
+            tool: "list_accounts",
+            outcome: "error",
+            code: 703,
+            status: 200,
+        });
+    });
+
+    it("lo que no es una herramienta va en debug, y dice qué petición hizo el canje", async () => {
+        const lines = captureLog();
+        await start();
+        setLogLevel("debug");
+        const token = await assistantToken({ sub: "alice" });
+        await (await rawInitialize(`Bearer ${token}`)).text();
+        await (await rawInitialize(`Bearer ${token}`)).text();
+        await vi.waitFor(() => expect(entries(lines(), "debug", "petición")).toHaveLength(2));
+        setLogLevel("silent");
+
+        const [first, second] = entries(lines(), "debug", "petición");
+        expect(first).toMatchObject({ sub: "alice", status: 200, exchange_ms: expect.any(Number) });
+        expect(first).not.toHaveProperty("tool");
+        expect(second).not.toHaveProperty("exchange_ms");
+        expect(world.exchanges).toBe(1);
+    });
+
+    it("lo que rechaza el protocolo va en warn, aunque el token fuera bueno", async () => {
+        const lines = captureLog();
+        await start();
+        setLogLevel("info");
+        const response = await fetch(PUBLIC_URL, {
+            method: "POST",
+            headers: {
+                "content-type": "application/json",
+                accept: "application/json, text/event-stream",
+                authorization: `Bearer ${await assistantToken({ sub: "alice" })}`,
+            },
+            body: "{esto no es json",
+        });
+        await response.text();
+        expect(response.status).toBeGreaterThanOrEqual(400);
+        await vi.waitFor(() => expect(entries(lines(), "warn", "petición rechazada")).toHaveLength(1));
+        setLogLevel("silent");
+
+        expect(entries(lines(), "warn", "petición rechazada")[0]).toMatchObject({
+            sub: "alice",
+            status: response.status,
+        });
+    });
+
+    it("en stdio no se escribe nada nuevo: ahí nadie escucha", async () => {
+        api.use(
+            http.get(`${BASE_URL}/clients_organizations`, () =>
+                HttpResponse.json({
+                    clients: [{ _id: "client-1", organizations: [{ _id: "org-1", name: "Una" }], total: 1 }],
+                    total: 1,
+                }),
+            ),
+        );
+        const harness = await withServer();
+        const lines = captureLog();
+        setLogLevel("debug");
+        await harness.client.callTool({ name: "list_organizations", arguments: {} });
+        setLogLevel("silent");
+        await harness.close();
+
+        expect(lines().filter((line) => / (llamada|petición) \{/.test(line))).toEqual([]);
     });
 });
 

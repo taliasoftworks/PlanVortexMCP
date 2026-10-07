@@ -27,7 +27,7 @@ import { PlanVortex, type ClientWithOrganizations } from "planvortex";
 import type { JWTVerifyGetKey } from "jose";
 import type { Config, HostedConfig } from "./config.js";
 import { USER_AGENT } from "./config.js";
-import { assembleContext, rateLimitedFetch, type Context } from "./context.js";
+import { assembleContext, rateLimitedFetch, type Context, type ToolOutcome } from "./context.js";
 import { DedupeCache } from "./dedupe.js";
 import type { HttpHandle } from "./http.js";
 import { log } from "./log.js";
@@ -146,6 +146,9 @@ export class PrincipalRegistry {
  * no un objeto suelto para que la fábrica pueda comprobar con `instanceof` que viene de aquí.
  */
 export class HostedSession {
+    /** Cómo acabó la herramienta de esta petición, si llamó a una. Lo lee {@link logRequest}. */
+    toolOutcome: ToolOutcome | undefined;
+
     constructor(
         readonly principal: Principal,
         /** El token CANJEADO. El del asistente no sale de la capa HTTP. */
@@ -192,6 +195,9 @@ export function createHostedContext(base: Config, session: HostedSession, global
         dedupe: session.state.dedupe,
         loadClients: () =>
             session.state.loadClients(async () => (await pv().clients.withOrganizations()).data),
+        observeTool: (outcome) => {
+            session.toolOutcome = outcome;
+        },
     });
 }
 
@@ -274,16 +280,30 @@ export async function serveHosted(config: Config, options: HostedOptions = {}): 
         //`--http` la defensa existe porque el proceso lleva dentro el secreto del dueño y cualquier
         //página podría hablarle desde el navegador; aquí cada petición tiene que traer un token
         //propio, ni hay cookies ni red privada detrás, y Claude y ChatGPT llaman desde sus servidores.
+        const started = performance.now();
+        //Sólo lo apunta la petición que hace el canje: si dos llegan a la vez, la otra espera al
+        //mismo y no lo cuenta como suyo.
+        let exchangeMs: number | undefined;
         let session: HostedSession;
         try {
             const { principal, token } = await verify(req.headers.authorization);
             const state = registry.get(principal.sub);
-            const apiToken = await state.apiToken(() => exchangeToken(hosted, token, principal.sub, now));
+            const apiToken = await state.apiToken(async () => {
+                const exchangeStarted = performance.now();
+                try {
+                    return await exchangeToken(hosted, token, principal.sub, now);
+                } finally {
+                    exchangeMs = Math.round(performance.now() - exchangeStarted);
+                }
+            });
             session = new HostedSession(principal, apiToken, state);
         } catch (error) {
             refuse(res, hosted, error);
             return;
         }
+        //`close` y no `finish`: también llega cuando el cliente corta a mitad, que es justo una de
+        //las cosas que se quieren ver.
+        res.once("close", () => logRequest(req, res, session, started, exchangeMs));
 
         const auth: AuthInfo = {
             //El CANJEADO, a propósito: si algún día alguien lee `authInfo.token` para llamar a la
@@ -351,6 +371,55 @@ function serveMetadata(req: IncomingMessage, res: ServerResponse, body: string):
         "cache-control": "public, max-age=3600",
     });
     res.end(req.method === "HEAD" ? undefined : body);
+}
+
+/**
+ * La línea de cada petición que pasó la autenticación: quién, qué y cómo acabó. Es lo que se mira
+ * cuando alguien dice «no me funciona», y la prueba de punta a punta de la fase 2 de `chatgpt.md`
+ * vio que faltaba: en `info` sólo quedaban los rechazos.
+ *
+ * Lleva el `sub` (el id de Keycloak, que sin acceso al realm no dice quién es) y el cliente, y nada
+ * de lo que dijo nadie: ni el token, ni los argumentos, ni la respuesta.
+ *
+ * El nivel sale de qué fue. Una herramienta va en `info`, haya ido bien o mal. El resto
+ * (descubrimiento, listados, la `subscriptions/listen` que Claude repite cada 4 minutos) va en
+ * `debug`, porque en `info` serían quince líneas por hora y persona diciendo que todo va bien. Y lo
+ * que rechaza el protocolo va en `warn`, sea lo que sea.
+ *
+ * El método sale de la cabecera `Mcp-Method`, que manda el protocolo 2026-07-28 y que el SDK
+ * comprueba contra el cuerpo; la era 2025 no la tiene, y entonces sólo se sabe que fue una
+ * herramienta si una llegó a ejecutarse.
+ */
+function logRequest(
+    req: IncomingMessage,
+    res: ServerResponse,
+    session: HostedSession,
+    started: number,
+    exchangeMs: number | undefined,
+): void {
+    const outcome = session.toolOutcome;
+    const method = headerValue(req, "mcp-method") ?? (outcome ? "tools/call" : undefined);
+    const tool = outcome?.tool ?? (method === "tools/call" ? headerValue(req, "mcp-name") : undefined);
+    const entry = {
+        sub: session.principal.sub,
+        client: session.principal.azp,
+        ...(method === undefined ? {} : { method }),
+        ...(tool === undefined ? {} : { tool }),
+        ...(outcome === undefined ? {} : { outcome: outcome.ok ? "ok" : "error" }),
+        ...(outcome?.code === undefined ? {} : { code: outcome.code }),
+        status: res.statusCode,
+        ms: Math.round(performance.now() - started),
+        ...(exchangeMs === undefined ? {} : { exchange_ms: exchangeMs }),
+        ...(res.writableFinished ? {} : { aborted: true }),
+    };
+    if (res.statusCode >= 400) log.warn("petición rechazada", entry);
+    else if (method === "tools/call") log.info("llamada", entry);
+    else log.debug("petición", entry);
+}
+
+function headerValue(req: IncomingMessage, name: string): string | undefined {
+    const value = req.headers[name];
+    return Array.isArray(value) ? value[0] : value;
 }
 
 /**

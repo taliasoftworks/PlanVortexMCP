@@ -4,6 +4,26 @@ All notable changes to `planvortex-mcp` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.1] — 2026-10-07
+
+**One log line per call in hosted mode.** At `info`, `--hosted` only logged the requests it
+refused, so when someone said "it doesn't work" there was nothing to look up. Now every request
+that gets past authentication writes one line when it ends:
+
+```
+[planvortex-mcp] info: llamada {"sub":"38a7f4f2-…","client":"https://claude.ai/oauth/mcp-oauth-client-metadata","method":"tools/call","tool":"list_accounts","outcome":"error","code":703,"status":200,"ms":97}
+```
+
+- Tool calls are logged at `info`, whether they work or fail, with the PlanVortex error code when
+  the API said no. Everything else (discovery, listings, and the `subscriptions/listen` that Claude
+  sends every four minutes) is logged at `debug`. Anything the protocol rejects with a 4xx or 5xx is
+  logged at `warn`.
+- The request that exchanged the token carries `exchange_ms`, which shows how often exchanges
+  happen and how long Keycloak takes.
+- The line holds the person's Keycloak id (`sub`) and the assistant client. It never holds a token,
+  the arguments or the result.
+- stdio and `--http` log exactly what they logged before.
+
 ## [0.11.0] — 2026-10-07
 
 **LinkedIn personal profiles.** LinkedIn now connects the personal profile of whoever authorizes

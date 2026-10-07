@@ -172,6 +172,11 @@ Everything the server remembers between requests (the exchanged token, the list 
 the duplicate guard and the rate limit) is kept per person, keyed by the token's `sub`. Run
 `planvortex-mcp --help` for its environment variables.
 
+Each request that gets past authentication logs one line when it ends: the `sub`, the assistant
+client, the method, the tool and how it ended (with the PlanVortex error code if the API refused),
+the HTTP status and the duration. Tool calls are logged at `info` and the rest at `debug`, and
+nothing in the line is a token, an argument or a result.
+
 ## Environment variables
 
 | Variable                     | Required                   | What it does                                                   |

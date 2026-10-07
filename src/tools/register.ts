@@ -18,6 +18,7 @@
  *    la red de seguridad de la 4: un id por defecto es correcto, pero invisible.
  */
 import { ZodObject, strictObject } from "zod";
+import { isPlanVortexError } from "planvortex";
 import type { McpServer } from "@modelcontextprotocol/server";
 import type * as z from "zod";
 import type { CallToolResult } from "@modelcontextprotocol/server";
@@ -125,7 +126,25 @@ export function defineTool<I extends z.ZodType, O extends z.ZodType>(
                 },
             }) as Context;
 
-            const result = await runTool(() => handler(args, scoped), ctx.config.mode);
+            //Se mide aquí porque es el único sitio por el que pasan todas. El error se mira antes
+            //de que `runTool` lo convierta en texto: el código de PlanVortex va al log como número,
+            //no rescatado de una frase pensada para el modelo.
+            const started = performance.now();
+            let failure: unknown;
+            const result = await runTool(async () => {
+                try {
+                    return await handler(args, scoped);
+                } catch (error) {
+                    failure = error;
+                    throw error;
+                }
+            }, ctx.config.mode);
+            ctx.observeTool?.({
+                tool: definition.name,
+                ok: result.isError !== true,
+                ...(isPlanVortexError(failure) && failure.code > 0 ? { code: failure.code } : {}),
+                ms: Math.round(performance.now() - started),
+            });
             return withOrganizationNote(ctx, result, defaulted);
         }) as never,
     );

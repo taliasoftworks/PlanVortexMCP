@@ -51,6 +51,14 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
 
     setLogLevel(config.logLevel);
 
+    //El modo alojado no tiene credenciales que echar de menos ni un contexto del proceso: cada
+    //petición trae a su persona (ver `hosted.ts`). Por eso sale antes de todo lo de abajo.
+    if (config.mode === "hosted") {
+        const { serveHosted } = await import("./hosted.js");
+        await serveHosted(config);
+        return;
+    }
+
     //ARRANCAR SIN CREDENCIALES ES DELIBERADO, y sólo en stdio. Lo pagó una ficha rota en un
     //directorio: Glama, Smithery y compañía construyen el Dockerfile, levantan el servidor **sin
     //ninguna variable de entorno** y le piden `tools/list`; un proceso que se niega a arrancar sin

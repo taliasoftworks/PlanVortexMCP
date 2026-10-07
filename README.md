@@ -112,8 +112,11 @@ That is a prompt-injection surface by construction, and it is worth knowing how 
 - Every comment, review and incoming message arrives wrapped in an `untrusted_content` block with an
   explicit notice that it is data, not instructions. It is not a guarantee — no wrapper is — but it
   raises the bar.
-- **No destructive tools.** If an injection succeeds, the worst case is a post you can see and
+- **Nothing that deletes.** If an injection succeeds, the worst case is a post you can see and
   delete, not four thousand deleted contacts.
+- The tools that publish, send, overwrite, hide a comment or spend AI credits are annotated
+  `destructiveHint: true`, because none of that can be taken back once it is out, and the ones
+  that only read are `readOnlyHint: true`. Every tool carries all three hints explicitly.
 - Third-party text never enters a tool description or a cached resource, where your client would not
   mark it as untrusted.
 - Whether a publish is confirmed by a human is decided by your MCP client, not by this server. The
@@ -146,6 +149,28 @@ docker run --rm -p 127.0.0.1:3000:3000 \
 The flags are not optional there: **the image speaks stdio by default**, because that is what
 an MCP client starts (`docker run -i planvortex-mcp`) and what a server directory introspects.
 `--http` is the deployment mode, and you ask for it.
+
+### The `--hosted` mode
+
+`--hosted` is the multi-user mode that PlanVortex runs itself, so that people can connect their
+PlanVortex account to an assistant by signing in, with no app credentials. You do not need it to
+self-host: that is `--http`. It holds no `client_secret` of any app, and it refuses to start if it
+finds one, a default organization, `PLANVORTEX_MCP_ALLOW_AI`, `PLANVORTEX_MCP_AUTH_TOKEN` or
+`PLANVORTEX_MCP_UPLOAD_DIRS`, because on a shared server those would apply to everybody.
+
+Every request has to carry an OAuth access token issued by PlanVortex's Keycloak for this server
+(its `aud`) and for one of the assistant clients it accepts (its `azp`). The server verifies it,
+exchanges it for a token of its own (RFC 8693) and only that one reaches the API, so the token an
+assistant stores never opens the PlanVortex API by itself. A request without a valid token gets a
+`401` whose `WWW-Authenticate` points at `/.well-known/oauth-protected-resource`. The scopes are
+`planvortex:read` (required) and `planvortex:write`: without the second one the write tools are not
+listed. Creating AI plans is not available in this mode, and neither is `create_connect_link`: a
+connection link can only be issued to an app, so the user connects social accounts in the
+PlanVortex panel and the server tells the model so.
+
+Everything the server remembers between requests (the exchanged token, the list of organizations,
+the duplicate guard and the rate limit) is kept per person, keyed by the token's `sub`. Run
+`planvortex-mcp --help` for its environment variables.
 
 ## Environment variables
 

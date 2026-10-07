@@ -275,8 +275,9 @@ export function registerPublicationTools(server: McpServer, ctx: Context): void 
                 id_organization: OrganizationArg,
             }),
             outputSchema: z.object({ publication: PublicationView, already_existed: z.boolean() }),
-            annotations: { readOnlyHint: false, openWorldHint: true },
-            write: true,
+            //Destructiva: publicar es un envío público que no se puede deshacer, y sin publish_date
+            //sale en el acto.
+            annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
         },
         async (args, context) => {
             const idOrganization = await context.resolveOrganization(args.id_organization);
@@ -406,8 +407,13 @@ export function registerPublicationTools(server: McpServer, ctx: Context): void 
                 id_organization: OrganizationArg,
             }),
             outputSchema: z.object({ publication: PublicationView }),
-            annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: true },
-            write: true,
+            //Destructiva: sobrescribe el texto y los ficheros, y una fecha adelantada la publica.
+            annotations: {
+                readOnlyHint: false,
+                destructiveHint: true,
+                idempotentHint: true,
+                openWorldHint: true,
+            },
         },
         async (args, context) => {
             const idOrganization = await context.resolveOrganization(args.id_organization);
@@ -495,8 +501,13 @@ export function registerPublicationTools(server: McpServer, ctx: Context): void 
                 id_organization: OrganizationArg,
             }),
             outputSchema: z.object({ publication: PublicationView, max_retries: z.number() }),
-            annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: true },
-            write: true,
+            //Destructiva: vuelve a publicar.
+            annotations: {
+                readOnlyHint: false,
+                destructiveHint: true,
+                idempotentHint: true,
+                openWorldHint: true,
+            },
         },
         async (args, context) => {
             const idOrganization = await context.resolveOrganization(args.id_organization);

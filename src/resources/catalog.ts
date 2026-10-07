@@ -89,7 +89,7 @@ export function registerCatalogResources(server: McpServer, ctx: Context): void 
         "planvortex://organizations",
         {
             title: "Organizations",
-            description: "The PlanVortex organizations this app reaches, with their ids.",
+            description: "The PlanVortex organizations this connection reaches, with their ids.",
             mimeType: "application/json",
             cacheHint: { ttlMs: ORGANIZATIONS_TTL_MS, cacheScope: "private" },
         },

@@ -126,6 +126,10 @@ export function projectPublication(publication: Publication): PublicationView {
  * La ficha entera de UNA publicación. Sigue sin ser el objeto crudo: `extra_data` y la cuenta
  * poblada entera no le dicen nada a un modelo, y `publication_errors` —que es justo lo que se viene
  * a mirar— sí.
+ *
+ * Tampoco lleva el id que le dio la RED (`external_identifier`): ninguna herramienta lo consume, el
+ * enlace ya va en `url`, y un id opaco que no sirve para la llamada siguiente es de lo que las dos
+ * revisiones piden quitar (trampa 13 de chatgpt.md). El del comentario se quitó por lo mismo.
  */
 export function projectPublicationDetail(publication: Publication): Record<string, unknown> {
     const populated = populatedAccount(publication);
@@ -137,9 +141,6 @@ export function projectPublicationDetail(publication: Publication): Record<strin
         account: populated ? projectAccount(populated) : undefined,
         files: (publication.files ?? []).map(projectUpload),
         retries: publication.retries,
-        ...(publication.external_identifier === undefined
-            ? {}
-            : { external_identifier: publication.external_identifier }),
         publication_errors: (publication.publication_errors ?? []).map((detail) => ({
             code: detail.code,
             message: detail.message,
@@ -199,8 +200,6 @@ export interface CommentView {
     read: boolean;
     replied: boolean;
     hidden: boolean;
-    /** El de la RED, opaco, que es el que consumen `reply_to_comment` y `hide_comment`. */
-    external_id: string;
     date: string;
 }
 
@@ -218,7 +217,6 @@ export function projectComment(comment: Comment): CommentView {
         read: comment.read,
         replied: comment.replied,
         hidden: comment.hidden,
-        external_id: comment.external_id,
         date: comment.creation_date,
     };
 }

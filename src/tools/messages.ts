@@ -161,8 +161,8 @@ export function registerMessageTools(server: McpServer, ctx: Context): void {
                 id_organization: OrganizationArg,
             }),
             outputSchema: z.object({ id: z.string(), already_existed: z.boolean() }),
-            annotations: { readOnlyHint: false, openWorldHint: true },
-            write: true,
+            //Destructiva: un mensaje enviado no se recupera.
+            annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
         },
         async (args, context) => {
             const idOrganization = await context.resolveOrganization(args.id_organization);
@@ -206,7 +206,11 @@ export function registerMessageTools(server: McpServer, ctx: Context): void {
                 //Las variables cuentan: el mismo recordatorio a la misma persona para OTRA cita no es
                 //un reintento, y el modelo lo tiene que poder mandar.
                 isTemplate
-                    ? JSON.stringify([args.template_name, args.template_language, args.template_parameters ?? []])
+                    ? JSON.stringify([
+                          args.template_name,
+                          args.template_language,
+                          args.template_parameters ?? [],
+                      ])
                     : args.text,
             ]);
             const [message, alreadyExisted] = await context.dedupe.run(key, () =>

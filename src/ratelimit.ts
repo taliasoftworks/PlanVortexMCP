@@ -24,6 +24,21 @@ export const DEFAULT_RATE_PER_SECOND = 5;
 export const DEFAULT_BURST = 10;
 
 /**
+ * El techo de TODO el tráfico del servidor alojado contra la API, sumando a todo el mundo.
+ *
+ * Cada persona tiene además su propio cubo ({@link DEFAULT_RATE_PER_SECOND}), y éste es el que
+ * garantiza lo que el de cada uno no puede: que mil conversaciones a la vez no sean mil veces cinco
+ * peticiones por segundo contra producción. La API no frena a los usuarios (`enforceApiRateLimit`
+ * sólo mira apps, trampa 20 de `chatgpt.md`), y el token canjeado no sale nunca de este proceso,
+ * así que este techo es completo: no hay otro camino a la API con esos tokens.
+ *
+ * Es por proceso. Con una réplica, que es lo que se despliega, es el techo de verdad; con varias,
+ * se multiplica por ellas.
+ */
+export const HOSTED_GLOBAL_RATE_PER_SECOND = 25;
+export const HOSTED_GLOBAL_BURST = 50;
+
+/**
  * El tope duro de páginas que una sola llamada de herramienta puede pedir.
  *
  * Ninguna herramienta pagina hoy más de una vez —los listados devuelven una página corta y ya—,

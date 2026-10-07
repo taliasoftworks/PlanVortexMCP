@@ -13,12 +13,55 @@ import type { LogLevel } from "./log.js";
 
 /** Cómo se anuncia el servidor. La versión la sube el release, no la mano. */
 export const SERVER_NAME = "planvortex";
-export const VERSION = "0.9.1";
+export const VERSION = "0.10.0";
 
 /** El `User-Agent` con el que este servidor se distingue de la librería en los logs del API. */
 export const USER_AGENT = `planvortex-mcp/${VERSION}`;
 
-export type TransportMode = "stdio" | "http";
+/**
+ * `hosted` es el `mcp.planvortex.com` de la fase 2 de `chatgpt.md`, y NO es un `--http` con más
+ * cosas: en `--http` el proceso es de UN dueño y habla con la API con la app de ese dueño; en
+ * `hosted` cada petición trae a una persona distinta, con su propio token, y no hay app ninguna.
+ */
+export type TransportMode = "stdio" | "http" | "hosted";
+
+/** Lo que sólo existe en modo alojado: de quién se fía el servidor y con qué canjea. */
+export interface HostedConfig {
+    /**
+     * La URL pública del endpoint, **tal cual**: es el `resource` de los metadatos y la audiencia
+     * que tiene que traer el token. Una barra de más aquí y el token deja de valer, o quien tenga
+     * conector y plugin ve dos juegos de herramientas iguales (trampa 27). Se compara byte a byte
+     * y no se normaliza a propósito.
+     */
+    publicUrl: string;
+    /** El `issuer` del realm, como sale en el `iss` de los tokens. Va en `authorization_servers`. */
+    issuer: string;
+    /**
+     * El mismo realm, por donde lo alcanza ESTE proceso: la red interna del compose. De ahí salen
+     * el JWKS y el canje. Con `KC_HOSTNAME` fijo, Keycloak calcula el mismo `issuer` entre por
+     * donde entre la petición, así que el canje no rechaza el token por venir de «otro realm».
+     */
+    issuerInternalUrl: string;
+    /** El cliente confidencial que canjea (`planvortex_mcp`): el único cuyo token llega a la API. */
+    exchangeClientId: string;
+    exchangeClientSecret: string;
+    /**
+     * Los `azp` que se aceptan: los clientes que representan a un asistente. Configurable y no una
+     * constante, porque el de ChatGPT llega en la fase 9 y los de CIMD los decide Anthropic.
+     */
+    connectorClients: string[];
+}
+
+/**
+ * Los conectores de Claude desde el primer día: los dos predefinidos y los dos documentos de CIMD
+ * de Anthropic (decisión 4). `mcp-chatgpt` no está: entra en la fase 9, por configuración.
+ */
+export const DEFAULT_CONNECTOR_CLIENTS = [
+    "mcp-claude",
+    "mcp-claude-public",
+    "https://claude.ai/oauth/mcp-oauth-client-metadata",
+    "https://claude.ai/oauth/claude-code-client-metadata",
+];
 
 export interface Config {
     /**
@@ -59,6 +102,8 @@ export interface Config {
      */
     allowAiPlans: boolean;
     logLevel: LogLevel;
+    /** Sólo en modo `hosted`; `undefined` en los otros dos. */
+    hosted: HostedConfig | undefined;
 }
 
 /** Lo que un fallo de configuración le enseña a quien arrancó el proceso. */
@@ -101,19 +146,53 @@ const EnvSchema = z.object({
     PLANVORTEX_MCP_READ_ONLY: z.string().optional(),
     PLANVORTEX_MCP_ALLOW_AI: z.string().optional(),
     PLANVORTEX_MCP_LOG_LEVEL: z.enum(LOG_LEVELS).optional(),
+    PLANVORTEX_MCP_MODE: z.enum(["stdio", "http", "hosted"]).optional(),
+    PLANVORTEX_MCP_PUBLIC_URL: z.string().url().optional(),
+    PLANVORTEX_MCP_ISSUER: z.string().url().optional(),
+    PLANVORTEX_MCP_ISSUER_INTERNAL_URL: z.string().url().optional(),
+    PLANVORTEX_MCP_EXCHANGE_CLIENT_ID: z.string().min(1).optional(),
+    PLANVORTEX_MCP_EXCHANGE_CLIENT_SECRET: z.string().min(1).optional(),
+    PLANVORTEX_MCP_CONNECTOR_CLIENTS: z.string().optional(),
 });
+
+/**
+ * TRAMPA 2 DE `chatgpt.md`, y las que vienen con ella: en un servidor de todos, lo que es de UN
+ * dueño no puede existir. `PLANVORTEX_ORGANIZATION_ID` sería la organización por defecto de todo el
+ * mundo (y la API contestaría 520 a quien no tenga rol en ella, que el modelo traduciría por «no
+ * tienes permisos» en su propia cuenta); las credenciales de app darían a cada persona el acceso de
+ * esa app; `ALLOW_AI` es una confirmación que da quien arranca el proceso y aquí no la puede dar
+ * nadie (trampa 17); y el bearer fijo y los directorios de subida son del `--http` de un dueño.
+ * No se ignoran: el proceso se niega a arrancar, porque ignorarlas en silencio es justo cómo un
+ * despliegue mal copiado acaba en producción.
+ */
+const HOSTED_FORBIDDEN = [
+    "PLANVORTEX_CLIENT_ID",
+    "PLANVORTEX_CLIENT_SECRET",
+    "PLANVORTEX_ORGANIZATION_ID",
+    "PLANVORTEX_MCP_ALLOW_AI",
+    "PLANVORTEX_MCP_AUTH_TOKEN",
+    "PLANVORTEX_MCP_UPLOAD_DIRS",
+] as const;
 
 export interface Flags {
     http: boolean;
+    hosted: boolean;
     host: string | undefined;
     port: number | undefined;
     version: boolean;
     help: boolean;
 }
 
-/** `--http`, `--host`, `--port`, `--version`, `--help`. Sin librería: son cinco. */
+/** `--http`, `--hosted`, `--host`, `--port`, `--version`, `--help`. Sin librería: son seis. */
 export function parseArgs(argv: readonly string[]): Flags {
-    const flags: Flags = { http: false, host: undefined, port: undefined, version: false, help: false };
+    const flags: Flags = {
+        http: false,
+        hosted: false,
+        host: undefined,
+        port: undefined,
+        version: false,
+        help: false,
+    };
     for (let i = 0; i < argv.length; i += 1) {
         const arg = argv[i] ?? "";
         const [name, inlineValue] = splitFlag(arg);
@@ -127,6 +206,9 @@ export function parseArgs(argv: readonly string[]): Flags {
         switch (name) {
             case "--http":
                 flags.http = true;
+                break;
+            case "--hosted":
+                flags.hosted = true;
                 break;
             case "--host":
                 flags.host = next();
@@ -168,10 +250,23 @@ export function loadConfig(env: NodeJS.ProcessEnv, argv: readonly string[]): Con
     }
     const value = parsed.data;
 
-    const mode: TransportMode = flags.http ? "http" : "stdio";
+    if (flags.http && flags.hosted) {
+        throw new ConfigError("--http and --hosted are two different servers: pick one.");
+    }
+    const mode: TransportMode = flags.hosted
+        ? "hosted"
+        : flags.http
+          ? "http"
+          : (value.PLANVORTEX_MCP_MODE ?? "stdio");
     const host = flags.host ?? "127.0.0.1";
     const port = flags.port ?? 3000;
     const hasCredentials = Boolean(value.PLANVORTEX_CLIENT_ID && value.PLANVORTEX_CLIENT_SECRET);
+
+    if (mode !== "stdio" && (!Number.isInteger(port) || port <= 0 || port > 65535)) {
+        throw new ConfigError(`--port must be a number between 1 and 65535, got "${port}".`);
+    }
+
+    const hosted = mode === "hosted" ? loadHostedConfig(env, value) : undefined;
 
     if (mode === "http") {
         //En `--http` sí se termina el proceso: eso es un despliegue, nadie está mirando el
@@ -180,9 +275,6 @@ export function loadConfig(env: NodeJS.ProcessEnv, argv: readonly string[]): Con
         //stdio es al revés, y por qué está en `main`.
         if (!hasCredentials) {
             throw new ConfigError(CREDENTIALS_HELP);
-        }
-        if (!Number.isInteger(port) || port <= 0 || port > 65535) {
-            throw new ConfigError(`--port must be a number between 1 and 65535, got "${port}".`);
         }
         //TRAMPA 12: este proceso lleva DENTRO el client_secret de la app. Cualquiera que alcance el
         //puerto publica en las redes del cliente sin más credencial que un `curl`. Atarlo fuera de
@@ -217,7 +309,79 @@ export function loadConfig(env: NodeJS.ProcessEnv, argv: readonly string[]): Con
         //banderas con una sola regla.
         allowAiPlans: isTruthy(value.PLANVORTEX_MCP_ALLOW_AI),
         logLevel: value.PLANVORTEX_MCP_LOG_LEVEL ?? "info",
+        hosted,
     };
+}
+
+/**
+ * Lo del modo alojado, validado entero antes de abrir el puerto: un `mcp.planvortex.com` que
+ * arranca a medias contesta `401` a todo el mundo con cara de normalidad.
+ */
+function loadHostedConfig(env: NodeJS.ProcessEnv, value: z.infer<typeof EnvSchema>): HostedConfig {
+    //Se mira el entorno crudo y no el valor parseado: una variable puesta a "" también es alguien
+    //que copió el `.env` de otro despliegue, y el esquema la habría dado por ausente.
+    const present = HOSTED_FORBIDDEN.filter((name) => env[name] !== undefined);
+    if (present.length > 0) {
+        throw new ConfigError(
+            [
+                `Refusing to start in hosted mode with ${present.join(", ")} set.`,
+                "",
+                "The hosted server is shared by every PlanVortex user: each request brings its own",
+                "person and its own token. App credentials, a default organization, ALLOW_AI, a",
+                "fixed bearer token or upload directories belong to a server with ONE owner (stdio",
+                "or --http) and would leak that owner's settings to everybody. Remove them.",
+            ].join("\n"),
+        );
+    }
+
+    const missing = (
+        [
+            ["PLANVORTEX_MCP_PUBLIC_URL", value.PLANVORTEX_MCP_PUBLIC_URL],
+            ["PLANVORTEX_MCP_ISSUER", value.PLANVORTEX_MCP_ISSUER],
+            ["PLANVORTEX_MCP_EXCHANGE_CLIENT_SECRET", value.PLANVORTEX_MCP_EXCHANGE_CLIENT_SECRET],
+        ] as const
+    )
+        .filter(([, setting]) => !setting)
+        .map(([name]) => name);
+    if (missing.length > 0) {
+        throw new ConfigError(`Hosted mode needs ${missing.join(", ")}. Run planvortex-mcp --help.`);
+    }
+
+    const publicUrl = value.PLANVORTEX_MCP_PUBLIC_URL as string;
+    const issuer = value.PLANVORTEX_MCP_ISSUER as string;
+    assertSecureUrl("PLANVORTEX_MCP_PUBLIC_URL", publicUrl);
+    assertSecureUrl("PLANVORTEX_MCP_ISSUER", issuer);
+    const parsedPublic = new URL(publicUrl);
+    if (parsedPublic.search || parsedPublic.hash) {
+        throw new ConfigError("PLANVORTEX_MCP_PUBLIC_URL cannot carry a query or a fragment.");
+    }
+
+    const connectorClients = value.PLANVORTEX_MCP_CONNECTOR_CLIENTS
+        ? value.PLANVORTEX_MCP_CONNECTOR_CLIENTS.split(",")
+              .map((item) => item.trim())
+              .filter((item) => item.length > 0)
+        : [...DEFAULT_CONNECTOR_CLIENTS];
+    if (connectorClients.length === 0) {
+        throw new ConfigError("PLANVORTEX_MCP_CONNECTOR_CLIENTS is set but lists no client.");
+    }
+
+    return {
+        publicUrl,
+        issuer,
+        //Sin barra final: se le pegan rutas de Keycloak (`/protocol/openid-connect/...`).
+        issuerInternalUrl: (value.PLANVORTEX_MCP_ISSUER_INTERNAL_URL ?? issuer).replace(/\/+$/, ""),
+        exchangeClientId: value.PLANVORTEX_MCP_EXCHANGE_CLIENT_ID ?? "planvortex_mcp",
+        exchangeClientSecret: value.PLANVORTEX_MCP_EXCHANGE_CLIENT_SECRET as string,
+        connectorClients,
+    };
+}
+
+/** `https`, salvo en loopback: así se puede probar en local y nunca publicar en claro. */
+function assertSecureUrl(name: string, url: string): void {
+    const parsed = new URL(url);
+    if (parsed.protocol === "https:") return;
+    if (parsed.protocol === "http:" && isLoopback(parsed.hostname)) return;
+    throw new ConfigError(`${name} has to be an https URL (plain http only on localhost), got "${url}".`);
 }
 
 /** `127.0.0.1`, `::1` y `localhost`. Lo demás es la red, aunque parezca de casa. */
@@ -245,11 +409,13 @@ export const HELP_TEXT = `planvortex-mcp ${VERSION} — the official MCP server 
 Usage:
   planvortex-mcp                 speak MCP over stdio (what an MCP client starts)
   planvortex-mcp --http          serve MCP over HTTP, for a self-hosted deployment
+  planvortex-mcp --hosted        the multi-user server PlanVortex hosts itself (OAuth)
   planvortex-mcp --version
   planvortex-mcp --help
 
 Flags:
   --http           serve over HTTP instead of stdio
+  --hosted         serve many users over HTTP, each signed in with OAuth
   --host <host>    HTTP bind address (default 127.0.0.1)
   --port <port>    HTTP port (default 3000)
 
@@ -263,5 +429,14 @@ Environment:
   PLANVORTEX_MCP_READ_ONLY    optional — 1 disables every write tool
   PLANVORTEX_MCP_ALLOW_AI     optional — 1 enables create_ai_plan, which spends AI credits
   PLANVORTEX_MCP_LOG_LEVEL    optional — debug | info | warn | error | silent
+
+Hosted mode (--hosted, or PLANVORTEX_MCP_MODE=hosted) refuses the app credentials, the default
+organization, ALLOW_AI, AUTH_TOKEN and UPLOAD_DIRS, and needs instead:
+  PLANVORTEX_MCP_PUBLIC_URL             required — this endpoint's public URL, exactly
+  PLANVORTEX_MCP_ISSUER                 required — the Keycloak realm, as tokens name it in iss
+  PLANVORTEX_MCP_ISSUER_INTERNAL_URL    optional — the same realm as this process reaches it
+  PLANVORTEX_MCP_EXCHANGE_CLIENT_ID     optional — the client that exchanges (planvortex_mcp)
+  PLANVORTEX_MCP_EXCHANGE_CLIENT_SECRET required — its secret
+  PLANVORTEX_MCP_CONNECTOR_CLIENTS      optional — comma list of accepted azp
 
 Docs: https://planvortex.com/developers`;

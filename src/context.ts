@@ -27,9 +27,15 @@ export interface Context {
     readonly config: Config;
     /** El anti-duplicado de las escrituras (§ trampa 4). */
     readonly dedupe: DedupeCache;
-    /** La memoria de la resolución de organización: una llamada por proceso, no por herramienta. */
+    /**
+     * La organización de la llamada, sin pedírsela al modelo cuando no hace falta. Sale de la
+     * misma lista cacheada que {@link listOrganizations}: no cuesta una llamada por herramienta.
+     */
     resolveOrganization(explicit?: string | undefined): Promise<string>;
-    /** Todas las organizaciones a las que llega esta app. Cacheadas. */
+    /**
+     * Todas las organizaciones a las que llega quien llama: la app del dueño, o la persona en modo
+     * alojado. Cacheadas (por proceso en stdio, por persona y poco tiempo en modo alojado).
+     */
     listOrganizations(): Promise<Organization[]>;
     /**
      * El CLIENTE al que pertenece una organización, que sólo los planes de IA necesitan.
@@ -42,20 +48,31 @@ export interface Context {
     resolveClient(idOrganization: string): Promise<string>;
 }
 
-export function createContext(config: Config): Context {
-    //TRAMPA 3: el cubo envuelve al `fetch` del cliente, no a cada herramienta. Una herramienta que
-    //se olvidara de pedir ficha no existiría — no hay ninguna forma de salir a la red desde aquí
-    //que no pase por esta función.
-    const bucket = new TokenBucket();
-    const limitedFetch = async (input: string, init: RequestInit): Promise<Response> => {
-        await bucket.take();
+/**
+ * Un `fetch` que pide ficha a cada cubo, en orden, antes de salir.
+ *
+ * TRAMPA 3: el cubo envuelve al `fetch` del cliente, no a cada herramienta. Una herramienta que se
+ * olvidara de pedir ficha no existiría — no hay ninguna forma de salir a la red desde aquí que no
+ * pase por esta función. En modo alojado son dos cubos, el de la persona y el de todos, y el suyo
+ * va primero: quien hace ruido espera en su propia cola sin gastar fichas de las de los demás.
+ */
+export function rateLimitedFetch(
+    buckets: readonly TokenBucket[],
+    userAgent: string = USER_AGENT,
+): (input: string, init: RequestInit) => Promise<Response> {
+    return async (input, init) => {
+        for (const bucket of buckets) await bucket.take();
         return fetch(input, {
             ...init,
             //Se distingue de la librería a secas en los logs del API, que es lo que se quiere el
             //día que haya que saber cuánto tráfico viene de agentes.
-            headers: { ...(init.headers as Record<string, string>), "user-agent": USER_AGENT },
+            headers: { ...(init.headers as Record<string, string>), "user-agent": userAgent },
         });
     };
+}
+
+export function createContext(config: Config): Context {
+    const limitedFetch = rateLimitedFetch([new TokenBucket()]);
 
     let client: PlanVortex | undefined;
     const pv = (): PlanVortex => {
@@ -73,10 +90,9 @@ export function createContext(config: Config): Context {
         return client;
     };
 
-    let organizationsCache: Organization[] | undefined;
+    //En stdio y `--http` el proceso es de un dueño y vive lo que la conversación: la lista se pide
+    //una vez y se queda.
     let clientsCache: ClientWithOrganizations[] | undefined;
-    let resolved: string | undefined;
-
     const loadClients = async (): Promise<ClientWithOrganizations[]> => {
         if (clientsCache) return clientsCache;
         //Una sola llamada: `/clients_organizations` trae cada cliente con sus organizaciones raíz
@@ -86,11 +102,34 @@ export function createContext(config: Config): Context {
         return clientsCache;
     };
 
+    return assembleContext({ config, pv, dedupe: new DedupeCache(), loadClients });
+}
+
+/** Las piezas que cambian entre un servidor de un dueño y el alojado. Lo demás es común. */
+export interface ContextParts {
+    config: Config;
+    /** El cliente de la librería, perezoso: ver {@link Context.pv}. */
+    pv: () => PlanVortex;
+    dedupe: DedupeCache;
+    /** Los clientes con sus organizaciones raíz. Quien la da decide cuánto se cachea y de quién. */
+    loadClients: () => Promise<ClientWithOrganizations[]>;
+}
+
+/**
+ * La resolución de organización y de cliente, que es la misma en los tres modos.
+ *
+ * Lo único que cambia es a quién se le habla en los errores. En stdio y `--http` detrás hay una
+ * APP, y lo que se arregla se arregla en su configuración; en modo alojado hay una PERSONA, que no
+ * tiene configuración ninguna que tocar y a la que mandar a «PLANVORTEX_ORGANIZATION_ID» sería
+ * mandarla a un sitio que no existe para ella.
+ */
+export function assembleContext(parts: ContextParts): Context {
+    const { config, pv, loadClients } = parts;
+    const asUser = config.mode === "hosted";
+
     const listOrganizations = async (): Promise<Organization[]> => {
-        if (organizationsCache) return organizationsCache;
         const clients = await loadClients();
-        organizationsCache = clients.flatMap((client) => client.organizations ?? []);
-        return organizationsCache;
+        return clients.flatMap((client) => client.organizations ?? []);
     };
 
     /**
@@ -111,14 +150,17 @@ export function createContext(config: Config): Context {
         if (clients.length === 1 && clients[0]) return clients[0]._id;
         if (clients.length === 0) {
             throw new ToolInputError(
-                "This PlanVortex app does not reach any client, so there is nowhere to create an " +
-                    "AI plan. A person has to grant it access in the PlanVortex panel.",
+                asUser
+                    ? "This PlanVortex user does not belong to any client, so there is nowhere to " +
+                          "read or create an AI plan."
+                    : "This PlanVortex app does not reach any client, so there is nowhere to create an " +
+                          "AI plan. A person has to grant it access in the PlanVortex panel.",
             );
         }
         const list = clients.map((client) => `- ${client.name}: ${client._id}`).join("\n");
         throw new ToolInputError(
-            `Could not tell which client organization ${idOrganization} belongs to, and this app ` +
-                `reaches ${clients.length}. Pass id_client explicitly:\n${list}`,
+            `Could not tell which client organization ${idOrganization} belongs to, and this ` +
+                `${asUser ? "user" : "app"} reaches ${clients.length}. Pass id_client explicitly:\n${list}`,
         );
     };
 
@@ -137,25 +179,31 @@ export function createContext(config: Config): Context {
     const resolveOrganization = async (explicit?: string | undefined): Promise<string> => {
         if (explicit) return explicit;
         if (config.organizationId) return config.organizationId;
-        if (resolved) return resolved;
 
+        //Sin memoria propia: la lista ya viene de la caché de quien la da, y en modo alojado esa
+        //caché caduca. Un «resuelto» guardado aquí la sobreviviría.
         const organizations = await listOrganizations();
         if (organizations.length === 1 && organizations[0]) {
-            resolved = organizations[0]._id;
-            log.debug("organización resuelta por ser la única", { id: resolved });
-            return resolved;
+            const only = organizations[0]._id;
+            log.debug("organización resuelta por ser la única", { id: only });
+            return only;
         }
         if (organizations.length === 0) {
             throw new ToolInputError(
-                "This PlanVortex app does not reach any organization. A person has to create one " +
-                    "in the PlanVortex panel, or grant this app access to an existing one.",
+                asUser
+                    ? "This PlanVortex user has no organization yet. They can create one in the " +
+                          "PlanVortex panel, or ask whoever runs their account for a role in one."
+                    : "This PlanVortex app does not reach any organization. A person has to create one " +
+                          "in the PlanVortex panel, or grant this app access to an existing one.",
             );
         }
         const list = organizations.map((org) => `- ${org.name}: ${org._id}`).join("\n");
         throw new ToolInputError(
-            `This app reaches ${organizations.length} organizations, so id_organization is ` +
-                `required. Call again with one of these ids:\n${list}\n` +
-                "Set PLANVORTEX_ORGANIZATION_ID in the server configuration to skip this step.",
+            `This ${asUser ? "user" : "app"} reaches ${organizations.length} organizations, so ` +
+                `id_organization is required. Call again with one of these ids:\n${list}` +
+                (asUser
+                    ? ""
+                    : "\nSet PLANVORTEX_ORGANIZATION_ID in the server configuration to skip this step."),
         );
     };
 
@@ -164,7 +212,7 @@ export function createContext(config: Config): Context {
             return pv();
         },
         config,
-        dedupe: new DedupeCache(),
+        dedupe: parts.dedupe,
         resolveOrganization,
         listOrganizations,
         resolveClient,

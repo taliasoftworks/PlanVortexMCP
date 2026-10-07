@@ -100,12 +100,47 @@ describe("catálogo de herramientas", () => {
         await harness.close();
     });
 
-    it("ninguna se declara destructiva, porque ninguna borra nada", async () => {
-        const harness = await withServer();
+    //Lo que miran las dos revisiones (fase 3 de chatgpt.md): OpenAI exige los tres booleanos
+    //EXPLÍCITOS en todas y los compara con lo que la herramienta hace, y Claude el título y el hint
+    //que toque. Un valor ausente no es un `false`: para la spec, una escritura sin `destructiveHint`
+    //es destructiva por defecto, y un escáner lo lee como «no declarado».
+    it("todas llevan título y los tres booleanos explícitos", async () => {
+        const harness = await withServer({ allowAiPlans: true });
         for (const tool of (await harness.client.listTools()).tools) {
-            expect(tool.annotations?.destructiveHint, tool.name).toBe(false);
+            expect(tool.title, tool.name).toBeTruthy();
+            expect(tool.annotations?.title, tool.name).toBe(tool.title);
+            expect(typeof tool.annotations?.readOnlyHint, tool.name).toBe("boolean");
+            expect(typeof tool.annotations?.destructiveHint, tool.name).toBe("boolean");
+            expect(typeof tool.annotations?.openWorldHint, tool.name).toBe("boolean");
+            if (tool.annotations?.readOnlyHint) {
+                expect(tool.annotations.destructiveHint, tool.name).toBe(false);
+            }
         }
-        //Y la comprobación que de verdad importa: no existe ninguna herramienta de borrado.
+        await harness.close();
+    });
+
+    //Para las dos revisiones un envío que no se puede deshacer ES destructivo, aunque este servidor
+    //no borre nada (trampa 11 de chatgpt.md). Esta lista es la decisión, herramienta por
+    //herramienta: tocarla cambia qué pide confirmación en Claude.
+    it("son destructivas exactamente las que envían, sobrescriben, ocultan o gastan", async () => {
+        const harness = await withServer({ allowAiPlans: true });
+        const destructive = (await harness.client.listTools()).tools
+            .filter((tool) => tool.annotations?.destructiveHint === true)
+            .map((tool) => tool.name);
+        expect(destructive).toEqual([
+            "create_publication",
+            "update_publication",
+            "retry_publication",
+            "create_ai_plan",
+            "reply_to_comment",
+            "hide_comment",
+            "send_message",
+        ]);
+        await harness.close();
+    });
+
+    it("y aun así no existe ninguna herramienta de borrado", async () => {
+        const harness = await withServer({ allowAiPlans: true });
         const names = (await harness.client.listTools()).tools.map((tool) => tool.name);
         expect(names.filter((name) => /^delete_|^remove_/.test(name))).toEqual([]);
         await harness.close();
@@ -126,7 +161,14 @@ describe("catálogo de herramientas", () => {
         const harness = await withServer();
         const tools = (await harness.client.listTools()).tools;
         const byName = new Map(tools.map((tool) => [tool.name, tool]));
-        for (const name of ["list_comments", "get_comment_thread", "reply_to_comment", "send_message"]) {
+        //upload_media, porque con una URL la descarga este servidor desde cualquier sitio.
+        for (const name of [
+            "list_comments",
+            "get_comment_thread",
+            "reply_to_comment",
+            "send_message",
+            "upload_media",
+        ]) {
             expect(byName.get(name)?.annotations?.openWorldHint, name).toBe(true);
         }
         await harness.close();

@@ -4,6 +4,59 @@ All notable changes to `planvortex-mcp` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] — 2026-10-07
+
+**A hosted, multi-user mode.** `planvortex-mcp --hosted` (or `PLANVORTEX_MCP_MODE=hosted`) serves
+many people at once over HTTP, each signed in with OAuth, with no app credentials anywhere. It is
+the mode PlanVortex runs itself; stdio and `--http` are unchanged.
+
+**And the tool annotations say what the tools really do.** Publishing, sending a message or a
+reply, editing or retrying a post, hiding a comment and creating an AI plan are now
+`destructiveHint: true`, so a client that honours the hints asks before each of them. Nothing was
+deleted or added: the server still cannot remove anything. What changed is the definition — an
+irreversible send counts as destructive, which is how Claude and ChatGPT review a connector.
+
+### Added
+
+- **`--hosted`.** Each request must bring an access token issued by PlanVortex's Keycloak for this
+  server and for an accepted assistant client. It is verified against the realm's keys (signature,
+  `iss`, `aud`, `exp`, `azp` and the `planvortex:read` scope) and exchanged for a token of the
+  server's own (RFC 8693) before anything reaches the API. Without a valid token the answer is a
+  `401` with a `WWW-Authenticate` that points at `/.well-known/oauth-protected-resource`, which the
+  server also serves. A Keycloak that does not answer is a `503`, not a `401`.
+- **Everything is per person** in that mode: the exchanged token, the list of organizations (cached
+  one minute), the duplicate guard and the rate limit, plus a ceiling for all of them together.
+- **`planvortex:write`** decides whether the write tools are listed. Creating AI plans is not
+  available in hosted mode, and neither is `create_connect_link`: a connection link can only be
+  issued to an app, so the server tells the model that accounts are connected in the PlanVortex
+  panel, on the Accounts page.
+- Error messages in hosted mode talk about the user's role instead of an app and its environment
+  variables.
+
+### Changed
+
+- **Every tool declares `readOnlyHint`, `destructiveHint` and `openWorldHint` explicitly**, and
+  its title also inside `annotations` for clients that look for it there. `destructiveHint` is
+  `true` on `create_publication`, `update_publication`, `retry_publication`, `create_ai_plan`,
+  `reply_to_comment`, `hide_comment` and `send_message`; `upload_media`, `mark_comment_read` and
+  `create_connect_link` stay `false`, because they only add or change something private.
+- `upload_media` is now `openWorldHint: true`: given a URL, this server downloads it from
+  anywhere on the internet.
+- **Plan limits are explained, not sold.** The messages for a plan limit (1300-1408 and 511, 515,
+  516, 542) and for the API rate limit (545) no longer tell the user that their plan "has to grow"
+  or needs to be bigger: they say the feature is not part of the current plan and point at
+  `get_plan_use`.
+- `get_publication` no longer returns the network's `external_identifier`, and comments no longer
+  carry the network's `external_id`. No tool takes either of them, and the post's link is still in
+  `url`.
+- Tool descriptions say "this connection" instead of "this app" where it could be either.
+- Depends on `jose`, for the token verification.
+
+### Fixed
+
+- The advice for a network's daily publishing cap (979) told the model to schedule the rest with
+  `publish_post`, a tool that does not exist. It is `create_publication`.
+
 ## [0.9.1] — 2026-10-03
 
 **A slow Instagram video no longer gets published twice.** When Meta takes more than ~30 seconds

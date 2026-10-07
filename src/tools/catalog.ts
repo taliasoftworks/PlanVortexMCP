@@ -13,6 +13,14 @@
  * pedir al agente («conéctame la cuenta de Instagram»), y si la herramienta no existe, el modelo da
  * vueltas o —peor— se inventa que lo ha hecho. Así que existe, y lo que devuelve es un enlace de
  * quince minutos para que lo abra una persona. La descripción lo dice en la primera línea.
+ *
+ * **En modo alojado no se registra.** El enlace sale de un token temporal de conexión, y ese token
+ * sólo lo emite una APP (`requireCurrentApp`): con el token de una persona la API contesta 514. En la
+ * fase 2 se quedó registrada contestando «hazlo en el panel», y eso es una herramienta que falla
+ * SIEMPRE con parámetros válidos, que es exactamente lo que la revisión de Claude rechaza. Lo que
+ * evitaba —que el modelo no supiera adónde mandar a la persona— lo dicen ahora las instrucciones,
+ * `list_accounts` y los errores de cuenta, cada uno según el modo. Si conectar desde el asistente
+ * entra algún día, es con `accounts.connectLinks`, que sí acepta una persona (fase 5 de chatgpt.md).
  */
 import * as z from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
@@ -131,8 +139,9 @@ export function registerCatalogTools(server: McpServer, ctx: Context): void {
                 id_organization: OrganizationArg,
             }),
             outputSchema: z.object({ url: z.string(), expires_at: z.string() }),
-            annotations: { readOnlyHint: false, openWorldHint: false },
-            write: true,
+            //Aditiva y privada: un enlace de un solo uso que caduca solo y no envía nada a nadie.
+            annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+            modes: ["stdio", "http"],
         },
         async (args, context) => {
             const idOrganization = await context.resolveOrganization(args.id_organization);

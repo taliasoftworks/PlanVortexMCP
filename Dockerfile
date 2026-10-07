@@ -5,6 +5,8 @@
 #
 # El modo `--http` de la fase 6 sigue estando, un argumento por detras de la imagen:
 #   docker run --rm -p 127.0.0.1:3000:3000 -e ... planvortex-mcp --http --host 0.0.0.0
+# Y el alojado de mcp.planvortex.com (fase 2 de chatgpt.md, en PlanVortexServer), igual:
+#   ... planvortex-mcp --hosted --host 0.0.0.0   (sus variables, en `--help`)
 FROM node:22-alpine AS build
 WORKDIR /app
 COPY package*.json ./

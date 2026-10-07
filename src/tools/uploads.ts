@@ -74,8 +74,9 @@ export function registerUploadTools(server: McpServer, ctx: Context): void {
                 }),
                 already_existed: z.boolean(),
             }),
-            annotations: { readOnlyHint: false, openWorldHint: false },
-            write: true,
+            //Aditiva (un fichero más en la biblioteca, nada se sobrescribe) y de mundo abierto: con
+            //una URL, la descarga ESTE servidor desde cualquier sitio de internet.
+            annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
         },
         async (args, context) => {
             const idOrganization = await context.resolveOrganization(args.id_organization);

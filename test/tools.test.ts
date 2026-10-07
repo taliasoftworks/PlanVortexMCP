@@ -6,7 +6,9 @@
  */
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { http, HttpResponse } from "msw";
+import { PlanVortexError } from "planvortex";
 import { BASE_URL, api, isError, paged, textOf, withServer } from "./helpers.js";
+import { explainError } from "../src/errors.js";
 
 beforeAll(() => api.listen({ onUnhandledRequest: "error" }));
 afterEach(() => api.resetHandlers());
@@ -713,6 +715,20 @@ describe("trampas 5 y 13 — errores que el modelo pueda usar, y validar antes d
         const text = textOf(await harness.client.callTool({ name: "list_publications", arguments: {} }));
         expect(text).toContain("Custom plan");
         await harness.close();
+    });
+
+    //Trampa 12 de chatgpt.md: las dos revisiones rechazan un servidor que empuja a subir de plan.
+    //Se puede EXPLICAR que algo no entra en el plan; no se puede decir que el plan «tiene que
+    //crecer». Va por los dos modos porque el alojado reescribe parte de los consejos de `auth`.
+    it("ningún consejo de plan empuja a pagar, ni a una app ni a una persona", () => {
+        for (const code of [511, 515, 516, 517, 542, 545, 1300, 1401]) {
+            for (const mode of ["stdio", "hosted"] as const) {
+                const text = explainError(new PlanVortexError(code, "Plan limit"), mode);
+                expect(text, `${code} en ${mode}`).not.toMatch(
+                    /grow|bigger|upgrade|pay more|paying|pricing|subscribe|purchase|\bbuy\b/i,
+                );
+            }
+        }
     });
 
     it("un 512 manda a create_connect_link, no a cambiar las credenciales", async () => {

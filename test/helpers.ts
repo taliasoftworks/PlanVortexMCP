@@ -41,6 +41,7 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
         readOnly: false,
         allowAiPlans: false,
         logLevel: "silent",
+        hosted: undefined,
         ...overrides,
     };
 }

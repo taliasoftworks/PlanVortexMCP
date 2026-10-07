@@ -13,8 +13,15 @@
  */
 import * as z from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
+import type { TransportMode } from "../config.js";
 
-export function registerPrompts(server: McpServer): void {
+export function registerPrompts(server: McpServer, mode: TransportMode = "stdio"): void {
+    //En modo alojado no hay `ALLOW_AI` que poner: crear planes no entra en la v1 alojada.
+    const missingAiPlan =
+        mode === "hosted"
+            ? "in your list, creating plans is not available through this connection: the user makes"
+            : "in your list, the server was started without PLANVORTEX_MCP_ALLOW_AI=1).";
+    const missingAiPlanTail = mode === "hosted" ? "them in the PlanVortex panel)." : "";
     server.registerPrompt(
         "weekly_plan",
         {
@@ -52,7 +59,8 @@ export function registerPrompts(server: McpServer): void {
                             "get_planner_templates shows what a plan can be generated from — a theme, their",
                             "own photos, an article, their shop's catalogue — and what each option costs in",
                             "AI credits. If they want that, create_ai_plan does it (and if that tool is not",
-                            "in your list, the server was started without PLANVORTEX_MCP_ALLOW_AI=1).",
+                            missingAiPlan,
+                            missingAiPlanTail,
                             "",
                             "Do NOT create anything. Present the plan and wait for the user to say which",
                             "posts to schedule.",

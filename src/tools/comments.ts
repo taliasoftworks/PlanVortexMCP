@@ -32,7 +32,6 @@ const CommentView = z.object({
     read: z.boolean(),
     replied: z.boolean(),
     hidden: z.boolean(),
-    external_id: z.string(),
     date: z.string(),
 });
 
@@ -177,8 +176,8 @@ export function registerCommentTools(server: McpServer, ctx: Context): void {
                 id_organization: OrganizationArg,
             }),
             outputSchema: z.object({ replied: z.boolean(), credits_consumed: z.number() }),
-            annotations: { readOnlyHint: false, openWorldHint: true },
-            write: true,
+            //Destructiva: una respuesta publicada no se recupera, y además es pública.
+            annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
         },
         async (args, context) => {
             const idOrganization = await context.resolveOrganization(args.id_organization);
@@ -216,8 +215,15 @@ export function registerCommentTools(server: McpServer, ctx: Context): void {
                 id_organization: OrganizationArg,
             }),
             outputSchema: z.object({ hidden: z.boolean() }),
-            annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: true },
-            write: true,
+            //Destructiva aunque se pueda deshacer: cambia lo que ve el público en la red, sobre el
+            //texto de otra persona. «Se puede deshacer» es justo lo que la norma de OpenAI dice que
+            //no basta para el `false`, y para Claude es una herramienta que modifica datos.
+            annotations: {
+                readOnlyHint: false,
+                destructiveHint: true,
+                idempotentHint: true,
+                openWorldHint: true,
+            },
         },
         async (args, context) => {
             const idOrganization = await context.resolveOrganization(args.id_organization);
@@ -261,8 +267,14 @@ export function registerCommentTools(server: McpServer, ctx: Context): void {
                 id_organization: OrganizationArg,
             }),
             outputSchema: z.object({ read: z.boolean() }),
-            annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
-            write: true,
+            //No destructiva, a diferencia de hide_comment: es una marca de la bandeja de
+            //PlanVortex que no ve nadie más, no sale a la red y no se pierde nada al cambiarla.
+            annotations: {
+                readOnlyHint: false,
+                destructiveHint: false,
+                idempotentHint: true,
+                openWorldHint: false,
+            },
         },
         async (args, context) => {
             const idOrganization = await context.resolveOrganization(args.id_organization);

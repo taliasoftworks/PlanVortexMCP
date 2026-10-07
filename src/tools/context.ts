@@ -21,8 +21,8 @@ import { defineTool } from "./register.js";
 const OrganizationArg = z
     .string()
     .describe(
-        "The PlanVortex organization id. Optional: if this app reaches a single organization, or " +
-            "the server was configured with a default one, it is resolved automatically.",
+        "The PlanVortex organization id. Optional: resolved automatically when there is only one " +
+            "to choose from, or when the server was configured with a default one.",
     )
     .optional();
 
@@ -34,7 +34,7 @@ export function registerContextTools(server: McpServer, ctx: Context): void {
             name: "list_organizations",
             title: "List organizations",
             description:
-                "List the PlanVortex organizations this app can reach, with their ids. Call this " +
+                "List the PlanVortex organizations this connection can reach, with their ids. Call this " +
                 "first when a tool says id_organization is required, or when the user names an " +
                 "organization you do not have an id for.",
             inputSchema: z.object({}),
@@ -47,7 +47,7 @@ export function registerContextTools(server: McpServer, ctx: Context): void {
             const organizations = (await context.listOrganizations()).map(projectOrganization);
             const text =
                 organizations.length === 0
-                    ? "This app does not reach any organization yet."
+                    ? "This connection does not reach any organization yet."
                     : asLines(organizations);
             return toolOk(text, { organizations });
         },
@@ -108,7 +108,10 @@ export function registerContextTools(server: McpServer, ctx: Context): void {
                     ? ""
                     : `\n\n${broken.length} account(s) are in error and cannot publish: ` +
                       `${broken.map((account) => account.name).join(", ")}. ` +
-                      "Reconnecting needs a person — use create_connect_link.";
+                      (context.config.mode === "hosted"
+                          ? "Reconnecting needs a person: the user does it in the PlanVortex panel, on " +
+                            "the Accounts page."
+                          : "Reconnecting needs a person — use create_connect_link.");
             const note = paginationNote(accounts.length, page.total, args.offset ?? 0);
             return toolOk(`${asLines(accounts)}\n\n${note}${warning}`.trim(), {
                 accounts,

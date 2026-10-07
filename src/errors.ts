@@ -22,6 +22,7 @@
  */
 import { isPlanVortexError, type PlanVortexError } from "planvortex";
 import type { CallToolResult } from "@modelcontextprotocol/server";
+import type { TransportMode } from "./config.js";
 import { log } from "./log.js";
 
 /** Un resultado de herramienta que el modelo lee como fallo, no como error de protocolo. */
@@ -50,22 +51,32 @@ export class ToolInputError extends Error {
 
 /**
  * El envoltorio de TODAS las herramientas. Nada sale de aquí como excepción.
+ *
+ * El modo entra porque cambia a quién se le habla: en stdio y `--http` hay una app detrás, en
+ * modo alojado una persona (ver {@link explainError}).
  */
-export async function runTool(fn: () => Promise<CallToolResult>): Promise<CallToolResult> {
+export async function runTool(
+    fn: () => Promise<CallToolResult>,
+    mode: TransportMode = "stdio",
+): Promise<CallToolResult> {
     try {
         return await fn();
     } catch (error) {
         //Al log entero (por `stderr`), al modelo sólo la frase útil.
         log.warn("la herramienta falló", { error: error instanceof Error ? error.message : error });
-        return toolError(explainError(error));
+        return toolError(explainError(error, mode));
     }
 }
 
 /**
  * La frase que lee el modelo. Una línea de qué pasó y una de qué hacer, en inglés porque es lo que
  * el modelo razona y porque la API pública ya está en inglés (§ decisión 8).
+ *
+ * En modo alojado no hay app ni fichero de configuración que revisar: quien llama es una persona
+ * que inició sesión, y sus permisos son sus roles. Los consejos que hablan de «la app» o de
+ * `PLANVORTEX_CLIENT_SECRET` serían falsos ahí, y se cambian por los suyos.
  */
-export function explainError(error: unknown): string {
+export function explainError(error: unknown, mode: TransportMode = "stdio"): string {
     if (error instanceof ToolInputError) {
         return error.message;
     }
@@ -73,7 +84,7 @@ export function explainError(error: unknown): string {
         const message = error instanceof Error ? error.message : String(error);
         return `The request failed before reaching PlanVortex: ${message}`;
     }
-    return `${headline(error)} ${advice(error)}`.trim();
+    return `${headline(error)} ${advice(error, mode === "hosted")}`.trim();
 }
 
 function headline(error: PlanVortexError): string {
@@ -82,7 +93,7 @@ function headline(error: PlanVortexError): string {
     return error.code > 0 ? `[PlanVortex error ${error.code}] ${error.message}.` : `${error.message}.`;
 }
 
-function advice(error: PlanVortexError): string {
+function advice(error: PlanVortexError, asUser: boolean): string {
     //Los frenos de ritmo van por delante de la familia, y a proposito. Nacieron por encima del
     //960 —el techo que tenia el rango `publication` cuando las publicaciones eran un cupo—, asi
     //que con una version de `planvortex` anterior llegan SIN familia y caerian en el consejo
@@ -105,26 +116,26 @@ function advice(error: PlanVortexError): string {
             //900-996, y no todo lo que hay dentro es «arregla el post»: el rango mete también un
             //id que no existe, un post ya enviado, un tope de cuenta y los dos de Slack que
             //necesitan a una persona. Ver {@link publicationAdvice}.
-            return publicationAdvice(error);
+            return publicationAdvice(error, asUser);
         case "plan_limit":
             //1300-1408. NO se arregla reintentando, y si no se dice con todas las letras el modelo
-            //reintenta tres veces y luego se inventa una explicación.
+            //reintenta tres veces y luego se inventa una explicación. Y se EXPLICA, no se vende
+            //(trampa 12 de chatgpt.md): las dos revisiones rechazan un servidor que empuja a pagar.
             return (
                 "This is a plan limit, not a transient failure: retrying will fail the same way. " +
-                "Do not retry. Call get_plan_use to show what is left, and tell the user their " +
-                "PlanVortex plan has to grow for this to work."
+                "Do not retry. Call get_plan_use to show the user what their PlanVortex plan " +
+                "includes and how much of it is in use, and explain that this goes beyond it."
             );
         case "auth":
             //El rango 500-544 se llama `auth` por el catálogo del servidor, no porque todo lo que
             //cae dentro sea un problema de credenciales. Ver {@link authAdvice}.
-            return authAdvice(error);
+            return authAdvice(error, asUser);
         case "account":
             //700-715. La cuenta social está en error, y reconectarla es un OAuth con una persona
             //delante: el modelo no puede hacerlo (§ trampa 9).
             return (
                 "The connected social account is not usable right now. Call list_accounts to see " +
-                "its error state. Reconnecting an account needs a person: use create_connect_link " +
-                "and give the user the link."
+                `its error state. ${reconnectAdvice(asUser)}`
             );
         case "file":
             return (
@@ -153,7 +164,9 @@ function advice(error: PlanVortexError): string {
         case "organization":
             return (
                 "Check the organization id: call list_organizations and use one of the ids it " +
-                "returns. This app only reaches its own organizations."
+                (asUser
+                    ? "returns. This user only reaches the organizations they have a role in."
+                    : "returns. This app only reaches its own organizations.")
             );
         case "integration":
             return integrationAdvice(error);
@@ -207,8 +220,8 @@ function rateAdvice(error: PlanVortexError): string {
         return (
             "This is the plan's API rate limit, and it is TRANSIENT: the credentials are fine and " +
             "asking for a new token changes nothing. Wait the seconds the `Retry-After` header " +
-            "says and continue; if it keeps happening, space the calls out or the account needs a " +
-            "bigger plan. Do not retry in a loop."
+            "says and continue, and if it keeps happening, space the calls out. Do not retry in " +
+            "a loop."
         );
     }
     if (error.code === 984) {
@@ -232,7 +245,7 @@ function rateAdvice(error: PlanVortexError): string {
         return (
             "That social network has a daily publishing cap and this account has reached it today. " +
             "This is NOT a plan limit and paying more does not lift it: it is the network's own " +
-            "ceiling. Do not retry today. Schedule the rest for tomorrow with publish_post, or use " +
+            "ceiling. Do not retry today. Schedule the rest for tomorrow with create_publication, or use " +
             "an account on another network. Call get_social_limits for the per-network numbers."
         );
     }
@@ -243,7 +256,7 @@ function rateAdvice(error: PlanVortexError): string {
         "Call get_social_limits for the per-hour and per-network daily caps."
     );
 }
-function publicationAdvice(error: PlanVortexError): string {
+function publicationAdvice(error: PlanVortexError, asUser: boolean): string {
     switch (error.code) {
         case 917:
             return (
@@ -318,7 +331,7 @@ function publicationAdvice(error: PlanVortexError): string {
             return (
                 "That Pinterest account is a personal one, and Pinterest only gives analytics to " +
                 "business accounts. Nothing about a post fixes it: the user has to switch the " +
-                "account to a business account on Pinterest and reconnect it (create_connect_link)."
+                `account to a business account on Pinterest and reconnect it. ${reconnectAdvice(asUser)}`
             );
         //Lo demás sí es el post: sobran caracteres, la red no admite ese tipo de fichero, falta un
         //título, el fichero pesa demasiado para Slack (983) o la subida se cayó (986). Lo que hay
@@ -351,27 +364,32 @@ function publicationAdvice(error: PlanVortexError): string {
  * 3. **Esa organización no es de esta app** (537).
  * 4. **Le faltan permisos** (520), y hay que decir CUÁLES.
  */
-function authAdvice(error: PlanVortexError): string {
+function authAdvice(error: PlanVortexError, asUser: boolean): string {
+    if (asUser) {
+        const hosted = hostedAuthAdvice(error);
+        if (hosted !== undefined) return hosted;
+    }
     switch (error.code) {
         case 511: //el plan no tiene usuarios suficientes
         case 515: //el plan no incluye conversaciones
         case 516: //la funcionalidad exige plan de pago y el cliente está en `free`
         case 542: //la funcionalidad exige el plan Custom
             return (
-                "This is a PlanVortex PLAN limitation, not a credentials problem: the app is " +
+                `This is a PlanVortex PLAN limitation, not a credentials problem: the ${asUser ? "user" : "app"} is ` +
                 "authenticated and the call is well formed, but the account's plan does not include " +
-                "this. Do not retry, and do not tell the user to check the server's credentials. " +
-                "Call get_plan_use to show the plan they are on, and tell them it has to grow for " +
-                "this to work." +
-                (error.code === 542 ? " This one needs the Custom plan specifically." : "")
+                "this. Do not retry" +
+                (asUser ? "" : ", and do not tell the user to check the server's credentials") +
+                ". Explain to the user that this feature is not part of their current plan; " +
+                "get_plan_use shows what it does include." +
+                (error.code === 542 ? " This one is only part of the Custom plan." : "")
             );
         //Se parece al anterior y se arregla de otra manera: aquí el plan es el correcto y lo que
         //falla es el cobro. Subir de plan no lo desbloquea.
         case 517:
             return (
                 "The PlanVortex account is disabled because of its subscription, not because of " +
-                "this server's credentials. Do not retry: a person has to sort out the billing in " +
-                "the PlanVortex panel before any of this works."
+                "the credentials or the sign-in. Do not retry: a person has to sort out the billing " +
+                "in the PlanVortex panel before any of this works."
             );
         case 512: //exige usuario o token temporal: no se puede hacer con una app
         case 519: //exige otro tipo de token
@@ -401,6 +419,53 @@ function authAdvice(error: PlanVortexError): string {
                 "The credentials of this MCP server were rejected. That is a configuration problem, " +
                 "not something the request can fix. Do not retry; tell the user to check the " +
                 "PLANVORTEX_CLIENT_ID and PLANVORTEX_CLIENT_SECRET of this server."
+            );
+    }
+}
+
+/**
+ * Los del rango `auth` que cambian cuando detrás hay una PERSONA (modo alojado). `undefined` para
+ * los que se explican igual —los de plan y el de la suscripción—, que siguen su camino de siempre.
+ *
+ * - **520**: no le faltan permisos a una app, le faltan a ella. Los da quien administra esa
+ *   organización, con un rol.
+ * - **537** no llega nunca (es de apps), pero si llegara su frase hablaría de «esta app».
+ * - **El resto** (501, 522 y compañía) es que la API rechazó el token de esta conexión. No hay
+ *   variables que mirar: se arregla volviendo a conectar PlanVortex en el asistente.
+ */
+function hostedAuthAdvice(error: PlanVortexError): string | undefined {
+    switch (error.code) {
+        case 511:
+        case 515:
+        case 516:
+        case 517:
+        case 542:
+            return undefined;
+        case 512:
+        case 519:
+            return (
+                "This part of PlanVortex cannot be used through an assistant. Do not retry: tell the " +
+                "user it has to be done by hand in the PlanVortex panel."
+            );
+        case 520: {
+            const required = requiredPermissions(error);
+            const detail = required.length > 0 ? ` Missing: ${required.join(", ")}.` : "";
+            return (
+                `This PlanVortex user is signed in but their role does not allow this call.${detail} ` +
+                "Do not retry: someone who administers that organization has to give them a role " +
+                "with those permissions in the PlanVortex panel."
+            );
+        }
+        case 537:
+            return (
+                "This user does not have access to that organization. Call list_organizations and " +
+                "use one of the ids it returns."
+            );
+        default:
+            return (
+                "PlanVortex did not accept this connection's sign-in. That is not something the " +
+                "request can fix. Do not retry; tell the user to disconnect PlanVortex in their " +
+                "assistant and connect it again."
             );
     }
 }
@@ -486,6 +551,18 @@ function aiPlanAdvice(error: PlanVortexError): string {
     return (
         "Read the message above before retrying: most of these are not fixed by repeating " + "the same call."
     );
+}
+
+/**
+ * Quién reconecta una cuenta social y dónde. Con una app hay herramienta para darle el enlace a la
+ * persona; en modo alojado no la hay (el enlace sólo se emite a una app, ver `create_connect_link`),
+ * y mandar al modelo a una herramienta que no está en su listado es mandarlo a inventársela.
+ */
+function reconnectAdvice(asUser: boolean): string {
+    return asUser
+        ? "Reconnecting an account needs a person: the user does it in the PlanVortex panel, on " +
+              "the Accounts page, where the network asks them to authorize."
+        : "Reconnecting an account needs a person: use create_connect_link and give the user the link.";
 }
 
 /** Los permisos que el 520 adjunta en su `data` (`{permissions, client_permissions}`). */

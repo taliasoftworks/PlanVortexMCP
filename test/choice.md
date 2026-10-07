@@ -64,7 +64,8 @@ narrower than what the case was actually about:
 
 ## Log
 
-| Date       | Model  | Cases passed | Notes                                                    |
-| ---------- | ------ | ------------ | -------------------------------------------------------- |
-| 2026-09-01 | sonnet | 12/12        | 1 detour: case 3 opens with `get_unread_counts`.         |
-| 2026-09-01 | opus   | 12/12        | 2 detours: cases 3 and 11 open with `get_unread_counts`. |
+| Date       | Model  | Cases passed | Notes                                                                                                                                               |
+| ---------- | ------ | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-09-01 | sonnet | 12/12        | 1 detour: case 3 opens with `get_unread_counts`.                                                                                                    |
+| 2026-09-01 | opus   | 12/12        | 2 detours: cases 3 and 11 open with `get_unread_counts`.                                                                                            |
+| 2026-10-06 | opus   | 12/12        | 2 detours: case 6 opens with `get_plan_use`, case 11 with `get_unread_counts`. After the explicit annotations (writes now `destructiveHint: true`). |

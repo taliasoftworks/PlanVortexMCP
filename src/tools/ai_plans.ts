@@ -52,6 +52,19 @@ const GATE_NOTE =
     "generating one spends AI credits. If create_ai_plan is not in your tool list, that is why: " +
     "tell the user to add it to the env block of their MCP configuration.";
 
+/**
+ * La misma nota en modo alojado, donde no hay configuración que tocar: crear planes no entra en la
+ * v1 alojada (decisión 7 de `chatgpt.md`), y cuando entre será un scope que concede la persona.
+ */
+const HOSTED_GATE_NOTE =
+    "Creating plans is not available through this connection, because generating one spends AI " +
+    "credits. If the user wants a new plan, they create it in the PlanVortex panel; you can read " +
+    "and review the ones that exist.";
+
+function gateNote(ctx: Context): string {
+    return ctx.config.mode === "hosted" ? HOSTED_GATE_NOTE : GATE_NOTE;
+}
+
 const PlanView = z.object({
     id: z.string(),
     state: z.string(),
@@ -171,7 +184,7 @@ export function registerAiPlanTools(server: McpServer, ctx: Context): void {
                 "to be guessed or remembered. The ones that do not generate images cost a " +
                 "fraction — a week of 7 posts with a picture each is 519 credits on standard and " +
                 "48 on from_images. " +
-                GATE_NOTE,
+                gateNote(ctx),
             inputSchema: z.object({}),
             annotations: { readOnlyHint: true, openWorldHint: false },
         },
@@ -325,7 +338,7 @@ export function registerAiPlanTools(server: McpServer, ctx: Context): void {
                 "person to review), validated (the drafts were scheduled), failed and cancelled. " +
                 "Archived plans are a separate listing, never mixed in: pass archived true for " +
                 "those. " +
-                GATE_NOTE,
+                gateNote(ctx),
             inputSchema: z.object({
                 id_organization: OrganizationArg,
                 archived: z
@@ -666,8 +679,8 @@ export function registerAiPlanTools(server: McpServer, ctx: Context): void {
                     .optional(),
                 id_organization: OrganizationArg,
             }),
-            annotations: { readOnlyHint: false, openWorldHint: true },
-            write: true,
+            //Destructiva: gasta créditos de IA, y un crédito gastado no se devuelve.
+            annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
             ai: true,
         },
         async (args, context) => {

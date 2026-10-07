@@ -6,7 +6,8 @@
  * 1. **Todo handler va envuelto en `runTool`**, así que un fallo sale como `isError` —que el modelo
  *    lee y con el que se corrige— y nunca como error de protocolo (§ trampa 5).
  * 2. **`PLANVORTEX_MCP_READ_ONLY` apaga de verdad**: una herramienta de escritura no se registra,
- *    no se registra desactivada. Lo que no está en `tools/list` no se puede llamar.
+ *    no se registra desactivada. Lo que no está en `tools/list` no se puede llamar. Y «de
+ *    escritura» es `readOnlyHint: false`, no una bandera aparte que pudiera decir otra cosa.
  * 3. **El orden es el de registro**, y por tanto determinista. La spec 2026-07-28 cachea
  *    `tools/list` con `ttlMs`, y un orden que cambiara entre arranques tiraría esa caché y la del
  *    prompt del modelo en cada conversación.
@@ -20,16 +21,33 @@ import { ZodObject, strictObject } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
 import type * as z from "zod";
 import type { CallToolResult } from "@modelcontextprotocol/server";
+import type { TransportMode } from "../config.js";
 import type { Context } from "../context.js";
 import { runTool } from "../errors.js";
 
-/** Las anotaciones que el cliente MCP pinta. Son lo único que hace que Claude Desktop avise. */
-export interface Annotations {
-    readOnlyHint?: boolean;
-    destructiveHint?: boolean;
-    idempotentHint?: boolean;
-    openWorldHint?: boolean;
-}
+/**
+ * Las anotaciones que el cliente MCP pinta, y lo que miran las dos revisiones (fase 3 de
+ * `chatgpt.md`, trampa 11). Claude decide con ellas qué pide confirmación —una destructiva, siempre;
+ * una de lectura, nunca— y OpenAI exige los tres booleanos explícitos en todas y los compara con lo
+ * que la herramienta hace de verdad.
+ *
+ * Por eso son dos formas y no una con todo opcional:
+ *
+ * - **Una de lectura no declara `destructiveHint`**: es `false` por definición, y lo pone
+ *   {@link defineTool}. Así no hay forma de escribir una lectura destructiva.
+ * - **Una escritura TIENE que decirlo**, sin valor por defecto. El `false` global que había aquí
+ *   (§ decisión 6: no hay borrados) era la definición de «destructivo» de este servidor, no la de
+ *   las revisiones: para las dos, publicar o mandar un mensaje lo es, porque no se puede deshacer.
+ *   Cada herramienta nueva de escritura tiene que pensarlo, y el compilador lo obliga.
+ *
+ * Y `readOnlyHint` es además lo que decide si la herramienta es de escritura: con
+ * `PLANVORTEX_MCP_READ_ONLY` (o sin `planvortex:write` en modo alojado) se quitan las que lo tienen
+ * a `false`. Una bandera aparte podía decir otra cosa, y una escritura que se olvidara de ella se
+ * quedaba listada en una conexión de sólo lectura.
+ */
+export type Annotations =
+    | { readOnlyHint: true; openWorldHint: boolean; idempotentHint?: boolean }
+    | { readOnlyHint: false; destructiveHint: boolean; openWorldHint: boolean; idempotentHint?: boolean };
 
 export interface ToolDefinition<I extends z.ZodType, O extends z.ZodType> {
     name: string;
@@ -38,16 +56,20 @@ export interface ToolDefinition<I extends z.ZodType, O extends z.ZodType> {
     inputSchema: I;
     outputSchema?: O;
     annotations: Annotations;
-    /** Marca la herramienta como escritura: `PLANVORTEX_MCP_READ_ONLY` la quita del listado. */
-    write?: boolean;
     /**
      * Marca la herramienta como GASTO: sólo se registra con `PLANVORTEX_MCP_ALLOW_AI` encendido.
      *
-     * Es el inverso de {@link write}, y por eso son dos banderas y no un enum: `write` quita algo
+     * Es el inverso de la escritura, y por eso no sale de las anotaciones: la escritura quita algo
      * que por defecto está, `ai` añade algo que por defecto no. Una herramienta que factura no se
      * enciende sola porque el servidor arranque.
      */
     ai?: boolean;
+    /**
+     * Sólo en estos modos. Por defecto, en todos. Existe para lo que en un modo no puede funcionar
+     * nunca: una herramienta que siempre contesta «aquí no se puede» es una que la revisión llama
+     * con parámetros válidos y ve fallar (fase 3 de `chatgpt.md`).
+     */
+    modes?: readonly TransportMode[];
 }
 
 export function defineTool<I extends z.ZodType, O extends z.ZodType>(
@@ -56,9 +78,11 @@ export function defineTool<I extends z.ZodType, O extends z.ZodType>(
     definition: ToolDefinition<I, O>,
     handler: (args: z.infer<I>, ctx: Context) => Promise<CallToolResult>,
 ): void {
-    if (definition.write && ctx.config.readOnly) return;
-    //Las dos banderas se cruzan aquí y en ningún otro sitio. Una herramienta `ai` es además
-    //`write`, así que `PLANVORTEX_MCP_READ_ONLY` ya la habría quitado arriba: el orden importa,
+    if (definition.modes !== undefined && !definition.modes.includes(ctx.config.mode)) return;
+    const annotations = definition.annotations;
+    if (!annotations.readOnlyHint && ctx.config.readOnly) return;
+    //Las dos banderas se cruzan aquí y en ningún otro sitio. Una herramienta `ai` es además de
+    //escritura, así que `PLANVORTEX_MCP_READ_ONLY` ya la habría quitado arriba: el orden importa,
     //porque un servidor declarado de sólo lectura no publica ni aunque le enciendan la IA.
     if (definition.ai && !ctx.config.allowAiPlans) return;
 
@@ -69,12 +93,17 @@ export function defineTool<I extends z.ZodType, O extends z.ZodType>(
             description: definition.description,
             inputSchema: strictInput(definition.inputSchema),
             ...(definition.outputSchema === undefined ? {} : { outputSchema: definition.outputSchema }),
+            //Los tres booleanos SIEMPRE, explícitos, en este orden. Y el título también aquí: la
+            //spec lo puso arriba en 2025-06-18, pero un cliente o un escáner anterior sólo lo busca
+            //en las anotaciones, y Claude exige que cada herramienta lo tenga.
             annotations: {
-                //Ninguna herramienta de este servidor es destructiva, y se dice en todas
-                //(§ decisión 6): borrar una publicación, una cuenta, un contacto o una integración
-                //no es una opción desactivada, es código que no se ha escrito.
-                destructiveHint: false,
-                ...definition.annotations,
+                title: definition.title,
+                readOnlyHint: annotations.readOnlyHint,
+                destructiveHint: annotations.readOnlyHint ? false : annotations.destructiveHint,
+                ...(annotations.idempotentHint === undefined
+                    ? {}
+                    : { idempotentHint: annotations.idempotentHint }),
+                openWorldHint: annotations.openWorldHint,
             },
         },
         //El `as` es el precio de tener un registrador genérico: el SDK infiere los argumentos del
@@ -96,7 +125,7 @@ export function defineTool<I extends z.ZodType, O extends z.ZodType>(
                 },
             }) as Context;
 
-            const result = await runTool(() => handler(args, scoped));
+            const result = await runTool(() => handler(args, scoped), ctx.config.mode);
             return withOrganizationNote(ctx, result, defaulted);
         }) as never,
     );

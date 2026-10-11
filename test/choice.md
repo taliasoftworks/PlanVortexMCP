@@ -10,6 +10,7 @@ Run them before a release, against a test organization:
     node scripts/choice-eval.mjs                 # the twelve cases
     node scripts/choice-eval.mjs --case 6        # one of them
     node scripts/choice-eval.mjs --model sonnet  # opus by default
+    node scripts/choice-eval.mjs --hosted        # against mcp.planvortex.com, signing in as a person
 
 The harness starts a headless Claude Code per case with **this server as its only MCP** and **no
 built-in tools at all**, says the sentence, and looks at which tools it calls. Two flags carry the
@@ -33,6 +34,14 @@ exception — there every call is checked, and so is the final answer.
 It needs `.env.live` (the same file layer 3 uses) because the cases need an organization with data
 in it, and it needs Claude Code — found on the PATH, or inside the VS Code extension, so there is
 nothing to install. It does not run in CI: it costs money and it needs a stack.
+
+**Against the hosted server** (`mcp.planvortex.com`, what Claude and ChatGPT connect to), add
+`--hosted`. It opens a browser to sign in as a person, through the same public client and loopback
+callback Claude Code uses, runs the cases with that connector token and revokes it at the end; no
+`.env.live` is needed, and the organizations are whatever that person can reach. One case changes
+meaning there: `create_connect_link` is not registered in hosted mode (a person's token cannot mint
+connect links), so **case 6 expects no write tool and an answer that sends the user to the
+PlanVortex panel**, without claiming anything was connected.
 
 A case fails if the model calls the wrong tool, asks the user for something it could have looked up,
 or invents an id.
@@ -64,8 +73,9 @@ narrower than what the case was actually about:
 
 ## Log
 
-| Date       | Model  | Cases passed | Notes                                                                                                                                               |
-| ---------- | ------ | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 2026-09-01 | sonnet | 12/12        | 1 detour: case 3 opens with `get_unread_counts`.                                                                                                    |
-| 2026-09-01 | opus   | 12/12        | 2 detours: cases 3 and 11 open with `get_unread_counts`.                                                                                            |
-| 2026-10-06 | opus   | 12/12        | 2 detours: case 6 opens with `get_plan_use`, case 11 with `get_unread_counts`. After the explicit annotations (writes now `destructiveHint: true`). |
+| Date       | Model  | Cases passed | Notes                                                                                                                                                                                                                    |
+| ---------- | ------ | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 2026-09-01 | sonnet | 12/12        | 1 detour: case 3 opens with `get_unread_counts`.                                                                                                                                                                         |
+| 2026-09-01 | opus   | 12/12        | 2 detours: cases 3 and 11 open with `get_unread_counts`.                                                                                                                                                                 |
+| 2026-10-06 | opus   | 12/12        | 2 detours: case 6 opens with `get_plan_use`, case 11 with `get_unread_counts`. After the explicit annotations (writes now `destructiveHint: true`).                                                                      |
+| 2026-10-11 | opus   | 12/12        | Hosted (`mcp.planvortex.com`, a person with five organizations). 1 detour: case 11 opens with `get_unread_counts`. Case 6 only reads (`list_accounts` per organization, `get_plan_use`) and sends the user to the panel. |

@@ -41,11 +41,16 @@
  * agarrarse y el caso se falla solo.
  */
 import { spawn } from "node:child_process";
+import { createHash, randomBytes } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+
+/** El puerto fijo del callback de `mcp-claude-public` en Keycloak, el mismo que usa Claude Code. */
+const LOGIN_PORT = 38497;
 
 /**
  * Las herramientas internas de Claude Code, que aquí sobran todas: lo que se prueba es si ESTE
@@ -160,6 +165,16 @@ const CASES = [
         say: "Connect my Instagram account",
         expected: ["create_connect_link"],
         catches: "LA IMPORTANTE: no puede decir que ha conectado nada",
+        //En modo alojado `create_connect_link` no existe (el token de una persona no saca enlaces
+        //temporales), así que lo correcto es mandar al panel sin escribir nada ni darlo por hecho.
+        hosted: {
+            expected: [],
+            allowReads: true,
+            forbiddenAnywhere: WRITE_TOOLS,
+            checkFinal: (text) =>
+                !/\b(i (have |'ve )?connected|(has|have) been connected|is now connected)\b/i.test(text) &&
+                /\bpanel\b/i.test(text),
+        },
     },
     {
         id: 7,
@@ -260,8 +275,11 @@ const USAGE = `Capa 4 — la elección de herramienta.
     node scripts/choice-eval.mjs                 los doce casos
     node scripts/choice-eval.mjs --case 6        uno suelto
     node scripts/choice-eval.mjs --model sonnet  opus por defecto
+    node scripts/choice-eval.mjs --hosted [url]  contra el servidor alojado (mcp.planvortex.com por
+                                                 defecto): abre el navegador para iniciar sesión,
+                                                 o usa el token de PLANVORTEX_MCP_BEARER
 
-Necesita \`.env.live\` y Claude Code, y arranca un modelo por caso: gasta cuota.`;
+Necesita \`.env.live\` (salvo con --hosted) y Claude Code, y arranca un modelo por caso: gasta cuota.`;
 
 function fail(why) {
     console.error(`${why}
@@ -277,7 +295,7 @@ ${USAGE}`);
  * reconoce, para el script.
  */
 function parseArgs(argv) {
-    const out = { model: "opus", only: undefined };
+    const out = { model: "opus", only: undefined, hosted: undefined };
     for (let i = 0; i < argv.length; i += 1) {
         const flag = argv[i];
         if (flag === "--help" || flag === "-h") {
@@ -293,6 +311,10 @@ function parseArgs(argv) {
             if (!Number.isInteger(out.only) || !CASES.some((item) => item.id === out.only)) {
                 fail(`--case ${String(argv[i])}: los casos van del 1 al ${CASES.length}`);
             }
+        } else if (flag === "--hosted") {
+            out.hosted = /^https?:\/\//.test(argv[i + 1] ?? "")
+                ? argv[++i]
+                : "https://mcp.planvortex.com/mcp";
         } else {
             fail(`no reconozco ${flag}`);
         }
@@ -424,9 +446,8 @@ function verdict(testCase, result) {
         : { ok: true, detour: true, why: `${calls.slice(0, 3).join(" -> ")} (rodeo)` };
 }
 
-async function main() {
-    const args = parseArgs(process.argv.slice(2));
-    const env = { ...readEnvFile(join(root, ".env.live")), ...process.env };
+/** El servidor local, por stdio, con las credenciales de app de la capa 3. */
+function localConfig(env) {
     const clientId = env.PLANVORTEX_LIVE_CLIENT_ID;
     const clientSecret = env.PLANVORTEX_LIVE_CLIENT_SECRET;
     if (!clientId || !clientSecret) {
@@ -440,8 +461,7 @@ async function main() {
         console.error("Falta dist/cli.js: ejecuta `npm run build` antes.");
         process.exit(1);
     }
-
-    const mcpConfig = JSON.stringify({
+    return JSON.stringify({
         mcpServers: {
             planvortex: {
                 command: process.execPath,
@@ -460,11 +480,135 @@ async function main() {
             },
         },
     });
+}
+
+/**
+ * El token de conector de una persona, como lo saca Claude Code: el cliente público del plan B
+ * (`mcp-claude-public`, o `PLANVORTEX_MCP_CLIENT_ID`), PKCE y un callback de loopback en el
+ * puerto fijo de ese cliente. El servidor de autorización sale de los metadatos del propio MCP,
+ * así que vale para producción y para un túnel. Con `planvortex:read` y `planvortex:write`: sin el
+ * de escritura, las ocho de escritura ni se anuncian. Sin `offline_access`, y el refresh token se
+ * revoca al acabar: no deja nada colgando en la cuenta de quien lo pasa.
+ */
+async function hostedLogin(url, env) {
+    const resource = new URL(url);
+    const metadata = await (
+        await fetch(`${resource.origin}/.well-known/oauth-protected-resource${resource.pathname}`)
+    ).json();
+    const issuer = metadata.authorization_servers?.[0];
+    if (!issuer) fail(`${url} no anuncia servidor de autorización`);
+    const discovery = await (await fetch(`${issuer}/.well-known/openid-configuration`)).json();
+    const clientId = env.PLANVORTEX_MCP_CLIENT_ID ?? "mcp-claude-public";
+    const redirect = `http://localhost:${LOGIN_PORT}/callback`;
+    const verifier = randomBytes(32).toString("base64url");
+    const state = randomBytes(12).toString("base64url");
+    const authorize = `${discovery.authorization_endpoint}?${new URLSearchParams({
+        response_type: "code",
+        client_id: clientId,
+        redirect_uri: redirect,
+        scope: "planvortex:read planvortex:write",
+        state,
+        code_challenge: createHash("sha256").update(verifier).digest("base64url"),
+        code_challenge_method: "S256",
+        resource: url,
+    })}`;
+
+    const code = await new Promise((resolve, reject) => {
+        const server = createServer((req, res) => {
+            const back = new URL(req.url ?? "/", redirect);
+            if (back.pathname !== "/callback") return void res.writeHead(404).end();
+            res.writeHead(200, { "content-type": "text/plain; charset=utf-8" });
+            //Un doble clic en «Permitir» deja un `already_logged_in` DETRÁS del código bueno, y el
+            //navegador sigue al segundo: una vuelta sin código no cierra, se sigue esperando.
+            if (back.searchParams.get("state") !== state || !back.searchParams.get("code")) {
+                res.end("Esta vuelta no traía código: abre otra vez el enlace de la terminal.");
+                console.log(`  (vuelta sin código: ${back.searchParams.get("error") ?? "otro state"})`);
+                return;
+            }
+            res.end("Listo: puedes cerrar esta pestaña, la evaluación sigue en la terminal.");
+            server.close();
+            resolve(back.searchParams.get("code"));
+        });
+        server.on("error", reject);
+        server.listen(LOGIN_PORT, "localhost", () => {
+            console.log(`Inicia sesión en el navegador (se abre solo; si no, este enlace):\n${authorize}\n`);
+            openBrowser(authorize);
+        });
+    });
+
+    const response = await fetch(discovery.token_endpoint, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+            grant_type: "authorization_code",
+            client_id: clientId,
+            code,
+            redirect_uri: redirect,
+            code_verifier: verifier,
+            resource: url,
+        }),
+    });
+    const tokens = await response.json();
+    if (!tokens.access_token)
+        fail(`el canje del código falló: ${tokens.error} ${tokens.error_description ?? ""}`);
+    return {
+        accessToken: tokens.access_token,
+        revoke: async () => {
+            if (!tokens.refresh_token || !discovery.revocation_endpoint) return;
+            await fetch(discovery.revocation_endpoint, {
+                method: "POST",
+                headers: { "content-type": "application/x-www-form-urlencoded" },
+                body: new URLSearchParams({
+                    token: tokens.refresh_token,
+                    token_type_hint: "refresh_token",
+                    client_id: clientId,
+                }),
+            }).catch(() => {});
+        },
+    };
+}
+
+/** Sin `cmd /c start`: el `&` de la URL partiría el comando. */
+function openBrowser(url) {
+    const [command, args] =
+        process.platform === "win32"
+            ? ["rundll32", ["url.dll,FileProtocolHandler", url]]
+            : [process.platform === "darwin" ? "open" : "xdg-open", [url]];
+    spawn(command, args, { stdio: "ignore", detached: true })
+        .on("error", () => {})
+        .unref();
+}
+
+/**
+ * El servidor alojado con ese token. `--print` no puede hacer el baile de OAuth, así que el token
+ * entra hecho, y caduca: con los 25 minutos del realm caben los doce casos, pero no mucho más.
+ */
+function hostedConfig(url, token) {
+    return JSON.stringify({
+        mcpServers: {
+            planvortex: { type: "http", url, headers: { Authorization: `Bearer ${token}` } },
+        },
+    });
+}
+
+async function main() {
+    const args = parseArgs(process.argv.slice(2));
+    const env = { ...readEnvFile(join(root, ".env.live")), ...process.env };
+    //Con un token ya hecho en PLANVORTEX_MCP_BEARER no hay login (ni nada que revocar después).
+    const login = args.hosted && !env.PLANVORTEX_MCP_BEARER ? await hostedLogin(args.hosted, env) : undefined;
+    const mcpConfig = args.hosted
+        ? hostedConfig(args.hosted, env.PLANVORTEX_MCP_BEARER ?? login.accessToken)
+        : localConfig(env);
 
     const bin = findClaude(env);
-    const selected = args.only ? CASES.filter((item) => item.id === args.only) : CASES;
-    console.log(`Capa 4 — ${selected.length} caso(s), modelo ${args.model}\n`);
-
+    const selected = (args.only ? CASES.filter((item) => item.id === args.only) : CASES).map((item) =>
+        args.hosted && item.hosted ? { ...item, ...item.hosted } : item,
+    );
+    console.log(
+        `Capa 4 — ${selected.length} caso(s), modelo ${args.model}` +
+            (args.hosted ? `, contra ${args.hosted}` : "") +
+            "\n",
+    );
     const rows = [];
     for (const testCase of selected) {
         process.stdout.write(`${String(testCase.id).padStart(2)}. ${testCase.say.slice(0, 52)}… `);
@@ -490,8 +634,9 @@ async function main() {
     }
     console.log(
         `\nApunta el resultado en la tabla de test/choice.md: ` +
-            `| ${new Date().toISOString().slice(0, 10)} | ${args.model} | ${passed}/${rows.length} | |`,
+            `| ${new Date().toISOString().slice(0, 10)} | ${args.model} | ${passed}/${rows.length} | ${args.hosted ? "Hosted." : ""} |`,
     );
+    await login?.revoke();
     process.exit(passed === rows.length ? 0 : 1);
 }
 

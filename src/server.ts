@@ -45,6 +45,13 @@ without it the pin is saved with an error and never goes out. A pin is always an
 never text alone, and the URL it should lead to goes in link, not in the text. Pinterest has no
 comment inbox either: its API does not expose a pin's comments.
 
+TikTok asks for the user's own choices before anything is posted, with nothing preselected: who
+can see the post (visibility, among the options THEIR account allows right now), whether people can
+comment, Duet or Stitch (interactions), and whether it is commercial content (commercial_content).
+Call create_publication without them and it answers with what that account allows; ask the user,
+tell them that by posting they agree to TikTok's Music Usage Confirmation, and call again. On
+YouTube, ask whether a video is made for kids (made_for_kids).
+
 On LinkedIn one person can have two kinds of account: their personal profile (personal_profile in
 list_accounts) and the pages they manage. Both publish, but only pages have comments: LinkedIn does
 not let any app read the comments on a personal profile.

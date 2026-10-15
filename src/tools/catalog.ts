@@ -80,7 +80,10 @@ export function registerCatalogTools(server: McpServer, ctx: Context): void {
                 "comment, and Slack and Pinterest publish but have no comments to read. Two " +
                 "columns are about publishing: destinations means every post needs a place inside " +
                 "the account (Pinterest's board, see list_destinations), and link means the post " +
-                "carries a destination URL of its own. " +
+                "carries a destination URL of its own. visibility, interactions and " +
+                "commercial_content are settings a post can carry (TikTok asks the user for all " +
+                "three; YouTube has visibility and made_for_kids), and publish_settings means " +
+                "create_publication reads what each account allows before posting. " +
                 "Check here before promising the user something.",
             inputSchema: z.object({}),
             annotations: { readOnlyHint: true, openWorldHint: false },
@@ -103,6 +106,17 @@ export function registerCatalogTools(server: McpServer, ctx: Context): void {
                         products: capability?.products,
                         destinations: capability?.destinations,
                         link: capability?.link,
+                        //La librería de esta versión aún no las tipa; el servidor sí las manda
+                        visibility: (capability as unknown as Record<string, boolean> | undefined)
+                            ?.visibility,
+                        interactions: (capability as unknown as Record<string, boolean> | undefined)
+                            ?.interactions,
+                        commercial_content: (capability as unknown as Record<string, boolean> | undefined)
+                            ?.commercial_content,
+                        made_for_kids: (capability as unknown as Record<string, boolean> | undefined)
+                            ?.made_for_kids,
+                        publish_settings: (capability as unknown as Record<string, boolean> | undefined)
+                            ?.publish_settings,
                         comment_reply: matrix?.reply,
                         comment_hide: matrix?.hide,
                         comment_delete_own: matrix?.delete_own,

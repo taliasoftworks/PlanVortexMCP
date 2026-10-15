@@ -22,6 +22,7 @@ import {
 } from "../format/project.js";
 import { fingerprint } from "../dedupe.js";
 import { knownNetworks, validateNetworkFields, validatePublication } from "../limits.js";
+import { publishSettingsProblems, readPublishSettings } from "../publishSettings.js";
 import { defineTool } from "./register.js";
 
 const OrganizationArg = z.string().describe("The PlanVortex organization id. Optional.").optional();
@@ -224,6 +225,10 @@ export function registerPublicationTools(server: McpServer, ctx: Context): void 
                 "On Pinterest a pin needs things no other network asks for: a board " +
                 "(destination_id, from list_destinations), at least one image or video — a pin is " +
                 "never text alone — and, if it should lead somewhere, the URL in link. " +
+                "On TikTok the user has to choose who can see the post (visibility), whether people " +
+                "can comment, Duet or Stitch (interactions) and whether it is commercial content; " +
+                "nothing may be preselected. Call this without them and the answer lists what that " +
+                "account allows, so you can ask. On YouTube, ask whether the video is made for kids. " +
                 "An Instagram video can come back in state publishing while the network processes " +
                 "it: that is not a failure, PlanVortex finishes it by itself within minutes, and " +
                 "creating it again would publish it twice. " +
@@ -261,6 +266,44 @@ export function registerPublicationTools(server: McpServer, ctx: Context): void 
                     .describe(
                         "Pinterest only: where the pin takes whoever clicks it. It goes here, not in " +
                             "the text: inside the text it is visible and cannot be clicked.",
+                    )
+                    .optional(),
+                visibility: z
+                    .enum(["public", "unlisted", "friends", "followers", "private"])
+                    .describe(
+                        "Who can see the post, on YouTube (public, unlisted, private) and TikTok (public, " +
+                            "friends, followers, private). REQUIRED on TikTok and always the user's " +
+                            "choice: TikTok forbids a default, and which values an account allows " +
+                            "depends on the account. Other networks have no such setting; leave it out.",
+                    )
+                    .optional(),
+                interactions: z
+                    .object({
+                        comments: z.boolean().optional(),
+                        duet: z.boolean().optional(),
+                        stitch: z.boolean().optional(),
+                    })
+                    .describe(
+                        "TikTok only, REQUIRED there: whether people can comment, and on a video Duet and " +
+                            "Stitch with it. Each is false unless the user says yes.",
+                    )
+                    .optional(),
+                commercial_content: z
+                    .object({
+                        your_brand: z.boolean().optional(),
+                        branded_content: z.boolean().optional(),
+                    })
+                    .describe(
+                        "TikTok only: whether the post promotes the user's own brand (labeled Promotional " +
+                            "content) and/or is a paid partnership with a third party (labeled Paid " +
+                            "partnership; cannot be private). Leave it out if it is neither.",
+                    )
+                    .optional(),
+                made_for_kids: z
+                    .boolean()
+                    .describe(
+                        "YouTube only: whether the video is made for kids (COPPA). The law makes it the " +
+                            "channel owner's call: ask if it is not obvious. Leave it out elsewhere.",
                     )
                     .optional(),
                 publish_date: z.string().describe("ISO 8601. Leave empty to publish immediately.").optional(),
@@ -305,9 +348,29 @@ export function registerPublicationTools(server: McpServer, ctx: Context): void 
                     social_network: args.social_network,
                     destination: args.destination_id,
                     link: args.link,
+                    visibility: args.visibility,
+                    interactions: args.interactions,
+                    commercial_content: args.commercial_content,
+                    made_for_kids: args.made_for_kids,
                     creating: true,
                 }),
             );
+            //TIKTOK (ver publishSettings.ts): lo que admite ESA cuenta se lee de la red, y si falta
+            //una elección de la persona, la respuesta trae todo lo necesario para preguntársela.
+            const capability = capabilities[args.social_network] as unknown as
+                Record<string, boolean> | undefined;
+            if (problems.length === 0 && capability?.publish_settings) {
+                const settings = await readPublishSettings(context, idOrganization, args.id_account);
+                problems.push(
+                    ...publishSettingsProblems(settings, {
+                        visibility: args.visibility,
+                        interactions: args.interactions,
+                        commercial_content: args.commercial_content,
+                        scheduled_later: !!args.publish_date && Date.parse(args.publish_date) > Date.now(),
+                        creating: true,
+                    }),
+                );
+            }
             if (problems.length > 0) {
                 throw new ToolInputError(
                     `This post cannot be published as it is:\n${problems
@@ -340,6 +403,12 @@ export function registerPublicationTools(server: McpServer, ctx: Context): void 
                           },
                       }),
                 ...(args.link === undefined ? {} : { link: args.link }),
+                ...(args.visibility === undefined ? {} : { visibility: args.visibility }),
+                ...(args.interactions === undefined ? {} : { interactions: args.interactions }),
+                ...(args.commercial_content === undefined
+                    ? {}
+                    : { commercial_content: args.commercial_content }),
+                ...(args.made_for_kids === undefined ? {} : { made_for_kids: args.made_for_kids }),
                 ...(args.publish_date === undefined ? {} : { publish_date: args.publish_date }),
             } as PublicationInput;
 
@@ -391,7 +460,8 @@ export function registerPublicationTools(server: McpServer, ctx: Context): void 
                 "Change the text, media or scheduled date of a post that has NOT gone out yet " +
                 "(state draft or ready). A published post cannot be edited through PlanVortex; if " +
                 "you try, the error will say so. A Pinterest pin saved without a board (error 987) " +
-                "is fixed here by passing destination_id.",
+                "is fixed here by passing destination_id. On TikTok and YouTube the visibility and " +
+                "the other settings the user chose can be changed here too.",
             inputSchema: z.object({
                 id_publication: z.string(),
                 text: z.string().optional(),
@@ -402,6 +472,31 @@ export function registerPublicationTools(server: McpServer, ctx: Context): void 
                     .describe("Pinterest: the board, an id from list_destinations.")
                     .optional(),
                 link: z.string().describe("Pinterest: the pin's destination URL.").optional(),
+                visibility: z
+                    .enum(["public", "unlisted", "friends", "followers", "private"])
+                    .describe("YouTube and TikTok only: who can see the post. On TikTok, the user's choice.")
+                    .optional(),
+                interactions: z
+                    .object({
+                        comments: z.boolean().optional(),
+                        duet: z.boolean().optional(),
+                        stitch: z.boolean().optional(),
+                    })
+                    .describe("TikTok only: comments, duet, stitch, each true or false.")
+                    .optional(),
+                commercial_content: z
+                    .object({
+                        your_brand: z.boolean().optional(),
+                        branded_content: z.boolean().optional(),
+                    })
+                    .describe(
+                        "TikTok only: your_brand and/or branded_content (a paid partnership cannot be private).",
+                    )
+                    .optional(),
+                made_for_kids: z
+                    .boolean()
+                    .describe("YouTube only: whether the video is made for kids (COPPA).")
+                    .optional(),
                 publish_date: z.string().describe("ISO 8601.").optional(),
                 state: z.enum(["draft", "ready"]).optional(),
                 id_organization: OrganizationArg,
@@ -438,14 +533,45 @@ export function registerPublicationTools(server: McpServer, ctx: Context): void 
                               "in a minute.",
                 );
             }
-            if (args.destination_id !== undefined || args.link !== undefined) {
+            const settingsChanged =
+                args.visibility !== undefined ||
+                args.interactions !== undefined ||
+                args.commercial_content !== undefined ||
+                args.made_for_kids !== undefined;
+            if (args.destination_id !== undefined || args.link !== undefined || settingsChanged) {
                 const capabilities = await context.pv.catalog.socialCapabilities();
+                const network = String(current.social_network);
                 const problems = validateNetworkFields(capabilities, {
-                    social_network: String(current.social_network),
+                    social_network: network,
                     destination: args.destination_id,
                     link: args.link,
+                    visibility: args.visibility,
+                    interactions: args.interactions,
+                    commercial_content: args.commercial_content,
+                    made_for_kids: args.made_for_kids,
                     creating: false,
                 });
+                //Una visibilidad nueva en TikTok se mira contra lo que admite la cuenta AHORA
+                const capability = capabilities[network] as unknown as Record<string, boolean> | undefined;
+                const idAccount =
+                    typeof current.id_account === "string"
+                        ? current.id_account
+                        : (current.id_account as { _id?: string } | undefined)?._id;
+                if (
+                    problems.length === 0 &&
+                    args.visibility !== undefined &&
+                    capability?.publish_settings &&
+                    idAccount
+                ) {
+                    const settings = await readPublishSettings(context, idOrganization, idAccount);
+                    problems.push(
+                        ...publishSettingsProblems(settings, {
+                            visibility: args.visibility,
+                            scheduled_later: true,
+                            creating: false,
+                        }),
+                    );
+                }
                 if (problems.length > 0) {
                     throw new ToolInputError(
                         `This edit cannot be saved:\n${problems
@@ -476,9 +602,15 @@ export function registerPublicationTools(server: McpServer, ctx: Context): void 
                 ...(args.files === undefined ? {} : { files: args.files }),
                 ...(args.destination_id === undefined ? {} : { destination: { id: args.destination_id } }),
                 ...(args.link === undefined ? {} : { link: args.link }),
+                ...(args.visibility === undefined ? {} : { visibility: args.visibility }),
+                ...(args.interactions === undefined ? {} : { interactions: args.interactions }),
+                ...(args.commercial_content === undefined
+                    ? {}
+                    : { commercial_content: args.commercial_content }),
+                ...(args.made_for_kids === undefined ? {} : { made_for_kids: args.made_for_kids }),
                 ...(args.publish_date === undefined ? {} : { publish_date: args.publish_date }),
                 ...(args.state === undefined ? {} : { state: args.state }),
-            });
+            } as Partial<PublicationInput>);
             const view = projectPublication(publication);
             return toolOk(asLines([view]), { publication: view });
         },

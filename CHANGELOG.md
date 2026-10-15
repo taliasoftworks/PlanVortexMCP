@@ -4,6 +4,35 @@ All notable changes to `planvortex-mcp` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] — 2026-10-15
+
+**TikTok asks the user before posting, and so does this server.** TikTok's content sharing
+guidelines require that the person chooses, with nothing preselected, who can see a post (among
+the options their account allows right now), whether people can comment, Duet or Stitch, and
+whether it is commercial content. `create_publication` and `update_publication` take three new
+arguments for it: `visibility`, `interactions` (`comments`, `duet`, `stitch`) and
+`commercial_content` (`your_brand`, `branded_content`).
+
+There is no new tool. A TikTok post without those choices is not sent: `create_publication`
+reads what that account allows from PlanVortex and answers with all of it (the account's
+nickname, the visibilities it allows, the interactions the creator turned off, the labels TikTok
+will add, and the Music Usage Confirmation the user agrees to), so the model can ask in one go and
+call again. A visibility the account does not allow, a paid partnership set to private, or an
+account TikTok is not taking posts from today are stopped before anything is sent. The tool list
+stays the same on purpose: it is a contract with installed clients and with the directory reviews.
+
+- `made_for_kids` for YouTube videos (COPPA), and `visibility` there too (`public`, `unlisted`,
+  `private`). Until now a video always went out public and not made for kids.
+- `get_social_capabilities` shows `visibility`, `interactions`, `commercial_content`,
+  `made_for_kids` and `publish_settings`.
+- Errors 2500-2599 explain that the fix is asking the user again, not retrying. With `planvortex`
+  0.14 they arrive with no family, like 2600.
+- Those settings on a network that does not have them are refused with a message, instead of
+  being deleted by the server without a word.
+
+The account's settings are read with `pv.request`: `accounts.publishSettings()` arrives in the
+next `planvortex` release, and this server still depends on 0.14.
+
 ## [0.11.1] — 2026-10-07
 
 **One log line per call in hosted mode.** At `info`, `--hosted` only logged the requests it

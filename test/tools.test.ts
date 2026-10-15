@@ -1431,3 +1431,213 @@ describe("linkedin — el perfil personal publica pero no tiene bandeja", () => 
         expect(text).not.toContain("problem with the post itself");
     });
 });
+
+/**
+ * TIKTOK: su guía de contenido exige que la PERSONA elija quién ve el post, las interacciones y si
+ * es comercial, sin nada marcado de antemano. El modelo no puede saber qué privacidades admite una
+ * cuenta, así que `create_publication` las lee y se las devuelve para que pregunte. Y nada de eso
+ * es una herramienta nueva: la lista es un contrato (test/protocol.test.ts).
+ */
+describe("tiktok — lo que la persona tiene que elegir", () => {
+    const TIKTOK_LIMITS = { characters: { tiktok: 2200, youtube: 5000, instagram: 2200 }, title_characters: { youtube: 100 } };
+    const TIKTOK_CAPABILITIES = {
+        tiktok: { publications: true, destinations: false, link: false, visibility: true, interactions: true, commercial_content: true, publish_settings: true },
+        youtube: { publications: true, destinations: false, link: false, visibility: true, made_for_kids: true },
+        instagram: { publications: true, destinations: false, link: false },
+    };
+    const SETTINGS = {
+        social_network: "tiktok",
+        creator: { username: "nordwindcafe", nickname: "Nordwind Café" },
+        visibility_options: ["public", "friends", "private"],
+        interactions: { comments: { disabled: false }, duet: { disabled: false }, stitch: { disabled: true } },
+        max_video_duration_sec: 600,
+        can_post: true,
+    };
+    const VIDEO_POST = {
+        _id: "tt-1",
+        creation_date: "2026-10-14T10:00:00.000Z",
+        files: [],
+        id_account: "acc-tt",
+        id_organization: "org-a",
+        publication_errors: [],
+        publication_type: "profile",
+        retries: 0,
+        social_network: "tiktok",
+        state: "ready",
+        text: "Doce horas en frío",
+    };
+    const catalog = [
+        http.get(`${BASE_URL}/social_limits`, () => HttpResponse.json(TIKTOK_LIMITS)),
+        http.get(`${BASE_URL}/social_capabilities`, () => HttpResponse.json(TIKTOK_CAPABILITIES)),
+    ];
+    const settingsHandler = (settings: object = SETTINGS) =>
+        http.get(`${BASE_URL}/organizations/org-a/accounts/acc-tt/publish_settings`, () =>
+            HttpResponse.json({ publish_settings: settings }),
+        );
+
+    it("sin elegir nada NO publica: dice a qué cuenta va, qué admite y qué preguntar", async () => {
+        //Sin handler de `publish`: si la herramienta llamara, msw haría fallar el test.
+        api.use(organizations(ORG_A), ...catalog, settingsHandler());
+        const harness = await withServer();
+        const result = await harness.client.callTool({
+            name: "create_publication",
+            arguments: { id_account: "acc-tt", social_network: "tiktok", text: "Doce horas en frío", files: ["up-1"] },
+        });
+        expect(isError(result)).toBe(true);
+        const text = textOf(result);
+        expect(text).toContain("Nordwind Café");
+        expect(text).toContain("public = everyone");
+        expect(text).toContain("friends");
+        expect(text).not.toContain("followers =");
+        //Lo que el creador tiene cerrado en la app se dice, para no ofrecerlo
+        expect(text).toContain("stitch is turned off");
+        expect(text).toContain("Music Usage Confirmation");
+        expect(text).toContain("Paid partnership");
+        await harness.close();
+    });
+
+    it("una visibilidad que la cuenta no admite se dice, con las que sí", async () => {
+        api.use(organizations(ORG_A), ...catalog, settingsHandler());
+        const harness = await withServer();
+        const result = await harness.client.callTool({
+            name: "create_publication",
+            arguments: {
+                id_account: "acc-tt",
+                social_network: "tiktok",
+                text: "Doce horas en frío",
+                files: ["up-1"],
+                visibility: "followers",
+                interactions: { comments: true, duet: false, stitch: false },
+            },
+        });
+        expect(isError(result)).toBe(true);
+        expect(textOf(result)).toContain("It allows: public, friends, private");
+        await harness.close();
+    });
+
+    it("con todo elegido, las tres cosas viajan en el cuerpo tal cual", async () => {
+        let body: Record<string, unknown> = {};
+        api.use(
+            organizations(ORG_A),
+            ...catalog,
+            settingsHandler(),
+            http.post(`${BASE_URL}/organizations/org-a/accounts/acc-tt/publish`, async ({ request }) => {
+                body = (await request.json()) as Record<string, unknown>;
+                return HttpResponse.json({ publication: VIDEO_POST });
+            }),
+        );
+        const harness = await withServer();
+        const result = await harness.client.callTool({
+            name: "create_publication",
+            arguments: {
+                id_account: "acc-tt",
+                social_network: "tiktok",
+                text: "Doce horas en frío",
+                files: ["up-1"],
+                visibility: "friends",
+                interactions: { comments: true, duet: false, stitch: false },
+                commercial_content: { your_brand: true },
+            },
+        });
+        expect(isError(result)).toBe(false);
+        expect(body.visibility).toBe("friends");
+        expect(body.interactions).toEqual({ comments: true, duet: false, stitch: false });
+        expect(body.commercial_content).toEqual({ your_brand: true });
+        await harness.close();
+    });
+
+    it("si TikTok no acepta posts de la cuenta hoy, no lo intenta; programado para más tarde, sí", async () => {
+        const blocked = { ...SETTINGS, can_post: false, reason: "spam_risk_too_many_posts" };
+        api.use(
+            organizations(ORG_A),
+            ...catalog,
+            settingsHandler(blocked),
+            http.post(`${BASE_URL}/organizations/org-a/accounts/acc-tt/publish`, () => HttpResponse.json({ publication: VIDEO_POST })),
+        );
+        const harness = await withServer();
+        const choices = { visibility: "public", interactions: { comments: false, duet: false, stitch: false } };
+        const now = await harness.client.callTool({
+            name: "create_publication",
+            arguments: { id_account: "acc-tt", social_network: "tiktok", text: "Hoy", files: ["up-1"], ...choices },
+        });
+        expect(isError(now)).toBe(true);
+        expect(textOf(now)).toContain("daily posting limit");
+
+        const tomorrow = new Date(Date.now() + 24 * 3600 * 1000).toISOString();
+        const later = await harness.client.callTool({
+            name: "create_publication",
+            arguments: { id_account: "acc-tt", social_network: "tiktok", text: "Mañana", files: ["up-1"], publish_date: tomorrow, ...choices },
+        });
+        expect(isError(later)).toBe(false);
+        await harness.close();
+    });
+
+    it("una colaboración pagada privada se frena antes de preguntar nada a la red", async () => {
+        //Sin handler de publish_settings: la regla es de TikTok entera, no de la cuenta.
+        api.use(organizations(ORG_A), ...catalog);
+        const harness = await withServer();
+        const result = await harness.client.callTool({
+            name: "create_publication",
+            arguments: {
+                id_account: "acc-tt",
+                social_network: "tiktok",
+                text: "Colaboración",
+                files: ["up-1"],
+                visibility: "private",
+                interactions: { comments: false, duet: false, stitch: false },
+                commercial_content: { branded_content: true },
+            },
+        });
+        expect(isError(result)).toBe(true);
+        expect(textOf(result)).toContain("cannot be private");
+        await harness.close();
+    });
+
+    it("en una red sin esos ajustes se dice, en vez de dejar que el servidor los borre en silencio", async () => {
+        api.use(organizations(ORG_A), ...catalog);
+        const harness = await withServer();
+        const result = await harness.client.callTool({
+            name: "create_publication",
+            arguments: { id_account: "acc-1", social_network: "instagram", text: "Pan", visibility: "friends" },
+        });
+        expect(isError(result)).toBe(true);
+        expect(textOf(result)).toContain("has no visibility setting");
+        await harness.close();
+    });
+
+    it("YouTube: made_for_kids y visibility viajan sin pasar por lo de TikTok", async () => {
+        let body: Record<string, unknown> = {};
+        api.use(
+            organizations(ORG_A),
+            ...catalog,
+            http.post(`${BASE_URL}/organizations/org-a/accounts/acc-yt/publish`, async ({ request }) => {
+                body = (await request.json()) as Record<string, unknown>;
+                return HttpResponse.json({ publication: { ...VIDEO_POST, social_network: "youtube", id_account: "acc-yt" } });
+            }),
+        );
+        const harness = await withServer();
+        const result = await harness.client.callTool({
+            name: "create_publication",
+            arguments: {
+                id_account: "acc-yt",
+                social_network: "youtube",
+                title: "Cómo hacemos el cold brew",
+                text: "Doce horas",
+                files: ["up-1"],
+                visibility: "unlisted",
+                made_for_kids: false,
+            },
+        });
+        expect(isError(result)).toBe(false);
+        expect(body.visibility).toBe("unlisted");
+        expect(body.made_for_kids).toBe(false);
+        await harness.close();
+    });
+
+    it("los errores 25xx dicen que se pregunte otra vez, no que se reintente", () => {
+        expect(explainError(new PlanVortexError(2505, "This account cannot publish with that visibility right now"))).toContain(
+            "never picks another one",
+        );
+        expect(explainError(new PlanVortexError(2507, "Not now"))).toContain("do not retry now");
+    });
+});

@@ -117,6 +117,11 @@ function advice(error: PlanVortexError, asUser: boolean): string {
     if (error.code === 945 || error.code === 2600) {
         return noCommentsAdvice(error);
     }
+    //Los campos de publicación que no cupieron en los 9xx (visibilidad, niños, y lo que exige la
+    //auditoría de TikTok). Con `planvortex` 0.14 llegan SIN familia, como el 2600.
+    if (error.code >= 2500 && error.code <= 2599) {
+        return publicationSettingsAdvice(error);
+    }
     switch (error.family) {
         case "publication":
             //900-996, y no todo lo que hay dentro es «arregla el post»: el rango mete también un
@@ -286,6 +291,42 @@ function noCommentsAdvice(error: PlanVortexError): string {
         "here. Do not retry. Call get_social_capabilities to see which connected networks have " +
         "comments."
     );
+}
+
+/**
+ * 2500-2599: lo que la persona eligió para la publicación (quién la ve, si es para niños, y en
+ * TikTok las interacciones y el contenido comercial). Casi todos llegan dentro de una publicación
+ * guardada con errores; aquí caen los que se lanzan. Ninguno se arregla reintentando: se arregla
+ * preguntando otra vez.
+ */
+function publicationSettingsAdvice(error: PlanVortexError): string {
+    switch (error.code) {
+        case 2504:
+            return (
+                "A paid partnership cannot be private on TikTok. Ask the user whether it should be " +
+                "visible to everyone or to friends, or whether it is not a paid partnership, and fix " +
+                "it with update_publication."
+            );
+        case 2505:
+            return (
+                "This TikTok account no longer allows the visibility the user chose (it may have gone " +
+                "from public to private). PlanVortex never picks another one for them: ask the user " +
+                "which of the allowed values they want, and set it with update_publication."
+            );
+        case 2506:
+            return "The video is longer than this TikTok account may post. It has to be trimmed or posted elsewhere.";
+        case 2507:
+            return (
+                "TikTok is not taking posts from this account right now, usually its daily limit. It " +
+                "is temporary: do not retry now, offer to schedule it for later."
+            );
+        default:
+            return (
+                "One of the settings chosen for this post is not valid for its network: who can see " +
+                "it, whether it is made for kids, or TikTok's interactions and commercial content. " +
+                "The message above says which. Ask the user again; do not guess a value for them."
+            );
+    }
 }
 
 function publicationAdvice(error: PlanVortexError, asUser: boolean): string {

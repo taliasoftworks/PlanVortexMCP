@@ -143,6 +143,10 @@ export function validateNetworkFields(
         social_network: string;
         destination?: string | undefined;
         link?: string | undefined;
+        visibility?: string | undefined;
+        interactions?: object | undefined;
+        commercial_content?: { branded_content?: boolean | undefined } | undefined;
+        made_for_kids?: boolean | undefined;
         creating: boolean;
     },
 ): LimitProblem[] {
@@ -151,6 +155,41 @@ export function validateNetworkFields(
     //Una red que esta versión no conoce no se juzga: que lo diga el servidor.
     if (capability === undefined) return [];
     const problems: LimitProblem[] = [];
+
+    //Los campos de la auditoría de TikTok y de YouTube. La librería de esta versión no tipa esas
+    //capacidades todavía, pero el servidor las manda: se leen por nombre.
+    const has = capability as unknown as Record<string, boolean | undefined>;
+    if (input.visibility !== undefined && !has.visibility) {
+        problems.push({
+            message: `${network} has no visibility setting: every post there is visible to its audience. Remove visibility.`,
+        });
+    }
+    if (input.interactions !== undefined && !has.interactions) {
+        problems.push({
+            message: `${network} has no interaction settings (comments, Duet, Stitch). Remove interactions.`,
+        });
+    }
+    if (input.commercial_content !== undefined && !has.commercial_content) {
+        problems.push({
+            message: `${network} has no commercial content disclosure. Remove commercial_content.`,
+        });
+    }
+    if (input.made_for_kids !== undefined && !has.made_for_kids) {
+        problems.push({
+            message: `${network} has no made-for-kids setting (only YouTube does). Remove made_for_kids.`,
+        });
+    }
+    if (
+        input.commercial_content?.branded_content === true &&
+        input.visibility !== undefined &&
+        ["private", "followers"].includes(input.visibility)
+    ) {
+        problems.push({
+            message:
+                "A paid partnership (branded_content) cannot be private on TikTok: it has to be visible " +
+                "to everyone (public) or to friends. Ask the user which one, or whether it is not a paid partnership.",
+        });
+    }
 
     if (capability.destinations) {
         if (input.creating && !input.destination) {

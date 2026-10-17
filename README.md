@@ -226,6 +226,16 @@ Built on [`planvortex`](https://www.npmjs.com/package/planvortex), the official 
 server speaks no HTTP of its own: every call goes through the library, which is where the error
 catalogue, the token cache, the multipart upload and the pagination already live.
 
+## Guides
+
+Longer write-ups on planvortex.com:
+
+- [Posting to social media from your AI assistant with an MCP server](https://planvortex.com/en/resources/mcp-server-social-media): setup in each client, and how to connect it to Claude without installing anything
+- [LinkedIn MCP server: post from Claude through the official API](https://planvortex.com/en/resources/linkedin-mcp-server)
+- [Social media APIs for agentic workflows: the four things that decide it](https://planvortex.com/en/resources/social-media-api-agentic-workflows)
+- [AI social posts from your own photos](https://planvortex.com/en/resources/ai-social-posts-from-your-own-photos)
+- [All articles](https://planvortex.com/en/resources)
+
 ## Links
 
 - [PlanVortex for developers](https://planvortex.com/en/developers)

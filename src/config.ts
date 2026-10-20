@@ -13,7 +13,7 @@ import type { LogLevel } from "./log.js";
 
 /** Cómo se anuncia el servidor. La versión la sube el release, no la mano. */
 export const SERVER_NAME = "planvortex";
-export const VERSION = "0.12.0";
+export const VERSION = "0.13.0";
 
 /** El `User-Agent` con el que este servidor se distingue de la librería en los logs del API. */
 export const USER_AGENT = `planvortex-mcp/${VERSION}`;
@@ -47,20 +47,27 @@ export interface HostedConfig {
     exchangeClientSecret: string;
     /**
      * Los `azp` que se aceptan: los clientes que representan a un asistente. Configurable y no una
-     * constante, porque el de ChatGPT llega en la fase 9 y los de CIMD los decide Anthropic.
+     * constante, porque los de CIMD los decide Anthropic y pueden cambiar sin avisar.
      */
     connectorClients: string[];
+    /**
+     * El token que el portal de OpenAI pide servir en `/.well-known/openai-apps-challenge` para
+     * probar que el dominio es nuestro (fase 11 de `chatgpt.md`). Sin él, esa ruta da 404.
+     */
+    openaiAppsChallenge: string | undefined;
 }
 
 /**
- * Los conectores de Claude desde el primer día: los dos predefinidos y los dos documentos de CIMD
- * de Anthropic (decisión 4). `mcp-chatgpt` no está: entra en la fase 9, por configuración.
+ * Los conectores desde el primer día. De Claude, los dos predefinidos y los dos documentos de CIMD
+ * de Anthropic (decisión 4). De ChatGPT, `mcp-chatgpt`, predefinido y confidencial, porque Keycloak
+ * no acepta el documento de CIMD de OpenAI (trampa 6, probado el 17-10-2026).
  */
 export const DEFAULT_CONNECTOR_CLIENTS = [
     "mcp-claude",
     "mcp-claude-public",
     "https://claude.ai/oauth/mcp-oauth-client-metadata",
     "https://claude.ai/oauth/claude-code-client-metadata",
+    "mcp-chatgpt",
 ];
 
 export interface Config {
@@ -153,6 +160,7 @@ const EnvSchema = z.object({
     PLANVORTEX_MCP_EXCHANGE_CLIENT_ID: z.string().min(1).optional(),
     PLANVORTEX_MCP_EXCHANGE_CLIENT_SECRET: z.string().min(1).optional(),
     PLANVORTEX_MCP_CONNECTOR_CLIENTS: z.string().optional(),
+    PLANVORTEX_MCP_OPENAI_APPS_CHALLENGE: z.string().optional(),
 });
 
 /**
@@ -365,6 +373,14 @@ function loadHostedConfig(env: NodeJS.ProcessEnv, value: z.infer<typeof EnvSchem
         throw new ConfigError("PLANVORTEX_MCP_CONNECTOR_CLIENTS is set but lists no client.");
     }
 
+    //El portal compara el cuerpo con su token tal cual, así que un espacio o un salto de línea
+    //pegados al copiarlo harían fallar la verificación sin decir por qué. Se recortan los bordes y
+    //se rechaza lo que quede con espacios dentro: eso ya no es un token, es un pegado mal hecho.
+    const openaiAppsChallenge = value.PLANVORTEX_MCP_OPENAI_APPS_CHALLENGE?.trim() || undefined;
+    if (openaiAppsChallenge !== undefined && /\s/.test(openaiAppsChallenge)) {
+        throw new ConfigError("PLANVORTEX_MCP_OPENAI_APPS_CHALLENGE has to be one token, with no spaces.");
+    }
+
     return {
         publicUrl,
         issuer,
@@ -373,6 +389,7 @@ function loadHostedConfig(env: NodeJS.ProcessEnv, value: z.infer<typeof EnvSchem
         exchangeClientId: value.PLANVORTEX_MCP_EXCHANGE_CLIENT_ID ?? "planvortex_mcp",
         exchangeClientSecret: value.PLANVORTEX_MCP_EXCHANGE_CLIENT_SECRET as string,
         connectorClients,
+        openaiAppsChallenge,
     };
 }
 
@@ -438,5 +455,6 @@ organization, ALLOW_AI, AUTH_TOKEN and UPLOAD_DIRS, and needs instead:
   PLANVORTEX_MCP_EXCHANGE_CLIENT_ID     optional — the client that exchanges (planvortex_mcp)
   PLANVORTEX_MCP_EXCHANGE_CLIENT_SECRET required — its secret
   PLANVORTEX_MCP_CONNECTOR_CLIENTS      optional — comma list of accepted azp
+  PLANVORTEX_MCP_OPENAI_APPS_CHALLENGE  optional — token served at /.well-known/openai-apps-challenge
 
 Docs: https://planvortex.com/developers`;

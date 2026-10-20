@@ -4,6 +4,25 @@ All notable changes to `planvortex-mcp` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0] — 2026-10-20
+
+**The hosted server gets ready for ChatGPT.** Nothing changes for stdio, for `--http` or for
+Claude. Three things in `--hosted`:
+
+- **`mcp-chatgpt` is an accepted connector by default.** ChatGPT connects with a predefined,
+  confidential client, because Keycloak does not accept OpenAI's client ID metadata document.
+  `PLANVORTEX_MCP_CONNECTOR_CLIENTS` still overrides the whole list.
+- **`/.well-known/openai-apps-challenge`** serves the token in `PLANVORTEX_MCP_OPENAI_APPS_CHALLENGE`
+  as plain text. OpenAI's submission portal reads it to verify that the domain is ours. Without the
+  variable the route answers 404, and a token with spaces inside stops the server from starting
+  instead of failing the verification later.
+- **Every tool declares the scope it needs** in `_meta.securitySchemes`: OAuth with
+  `planvortex:read` for the read tools and `planvortex:write` for the write tools. OpenAI wants it
+  per tool even when the whole server needs a token. Outside hosted mode there is no OAuth, so
+  nothing is announced.
+
+The tool list is the same, so the listings that are already published see no change.
+
 ## [0.12.0] — 2026-10-15
 
 **TikTok asks the user before posting, and so does this server.** TikTok's content sharing

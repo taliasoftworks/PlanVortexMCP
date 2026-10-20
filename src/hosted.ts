@@ -270,6 +270,10 @@ export async function serveHosted(config: Config, options: HostedOptions = {}): 
             serveMetadata(req, res, metadata);
             return;
         }
+        if (path === OPENAI_APPS_CHALLENGE_PATH) {
+            serveOpenAiChallenge(req, res, hosted.openaiAppsChallenge);
+            return;
+        }
         if (path !== routes.mcp) {
             res.writeHead(404, { "content-type": "application/json" });
             res.end(JSON.stringify({ error: `Not found. The MCP endpoint is ${routes.mcp}.` }));
@@ -346,6 +350,30 @@ export async function serveHosted(config: Config, options: HostedOptions = {}): 
             await new Promise<void>((resolve) => server.close(() => resolve()));
         },
     };
+}
+
+/** Donde el portal de envío de OpenAI busca su token para dar el dominio por verificado. */
+export const OPENAI_APPS_CHALLENGE_PATH = "/.well-known/openai-apps-challenge";
+
+/**
+ * El desafío de dominio de OpenAI: el token en texto plano y nada más (ni JSON, ni una lista, ni un
+ * salto de línea al final), que es como lo compara el portal. Sin token configurado, 404: una ruta
+ * que contestara vacío daría al portal un «token incorrecto» que despista más que un «no está».
+ * Sin caché, porque cuando el portal vuelve a mirar es justo después de cambiarlo.
+ */
+function serveOpenAiChallenge(req: IncomingMessage, res: ServerResponse, token: string | undefined): void {
+    if (req.method !== "GET" && req.method !== "HEAD") {
+        res.writeHead(405, { allow: "GET" });
+        res.end();
+        return;
+    }
+    if (token === undefined) {
+        res.writeHead(404, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" });
+        res.end(req.method === "HEAD" ? undefined : "Not found.");
+        return;
+    }
+    res.writeHead(200, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" });
+    res.end(req.method === "HEAD" ? undefined : token);
 }
 
 /** Los metadatos del recurso: públicos, cacheables y con CORS, como los de cualquier servidor OAuth. */

@@ -193,9 +193,17 @@ function hostedConfig(overrides: Partial<Config> = {}): Config {
             exchangeClientId: "planvortex_mcp",
             exchangeClientSecret: EXCHANGE_SECRET,
             connectorClients: [...DEFAULT_CONNECTOR_CLIENTS],
+            openaiAppsChallenge: undefined,
         },
         ...overrides,
     });
+}
+
+/** La configuración de siempre, con el token del desafío de dominio de OpenAI. */
+function withChallenge(token: string): Partial<Config> {
+    const hosted = hostedConfig().hosted;
+    if (!hosted) throw new Error("hostedConfig sin hosted");
+    return { hosted: { ...hosted, openaiAppsChallenge: token } };
 }
 
 async function start(overrides: Partial<Config> = {}): Promise<HostedHandle> {
@@ -317,6 +325,20 @@ describe("los cuatro caminos de autenticación", () => {
             const response = await rawInitialize(`Bearer ${await assistantToken({ azp })}`);
             expect(response.status).toBe(200);
         }
+    });
+
+    it("acepta mcp-chatgpt sin configurar nada: ChatGPT entra con un cliente predefinido (trampa 6)", async () => {
+        await start();
+        const response = await rawInitialize(`Bearer ${await assistantToken({ azp: "mcp-chatgpt" })}`);
+        expect(response.status).toBe(200);
+    });
+
+    it("pero no el documento de CIMD de OpenAI, que Keycloak no acepta y nadie debería haber emitido", async () => {
+        await start();
+        const response = await rawInitialize(
+            `Bearer ${await assistantToken({ azp: "https://chatgpt.com/oauth/client.json" })}`,
+        );
+        expect(response.status).toBe(401);
     });
 });
 
@@ -548,6 +570,23 @@ describe("los scopes: leer y escribir (decisión 7)", () => {
         expect(names).toContain("list_ai_plans");
         expect(names).not.toContain("create_ai_plan");
     });
+
+    it("cada herramienta dice qué scope pide, en _meta.securitySchemes, como lo lee ChatGPT (fase 9)", async () => {
+        await start();
+        const { tools } = await (await connect(await assistantToken())).listTools();
+        expect(tools.length).toBeGreaterThan(0);
+        for (const tool of tools) {
+            const scope = tool.annotations?.readOnlyHint ? "planvortex:read" : "planvortex:write";
+            expect(tool._meta?.["securitySchemes"], tool.name).toEqual([{ type: "oauth2", scopes: [scope] }]);
+        }
+        const byName = new Map(tools.map((tool) => [tool.name, tool]));
+        expect(byName.get("list_accounts")?._meta?.["securitySchemes"]).toEqual([
+            { type: "oauth2", scopes: ["planvortex:read"] },
+        ]);
+        expect(byName.get("create_publication")?._meta?.["securitySchemes"]).toEqual([
+            { type: "oauth2", scopes: ["planvortex:write"] },
+        ]);
+    });
 });
 
 describe("lo que cambia cuando detrás hay una persona y no una app", () => {
@@ -653,6 +692,33 @@ describe("los metadatos del recurso (RFC 9728)", () => {
         await start();
         expect((await fetch(`http://127.0.0.1:${PORT}/health`)).status).toBe(200);
         expect((await fetch(`http://127.0.0.1:${PORT}/otra-cosa`)).status).toBe(404);
+    });
+});
+
+describe("el desafío de dominio de OpenAI (fase 11)", () => {
+    const CHALLENGE = `http://127.0.0.1:${PORT}/.well-known/openai-apps-challenge`;
+
+    it("sirve el token en texto plano, sin nada alrededor ni salto de línea, y sin token", async () => {
+        await start(withChallenge("abc123-del-portal"));
+        const response = await fetch(CHALLENGE);
+        expect(response.status).toBe(200);
+        expect(response.headers.get("content-type")).toMatch(/^text\/plain/);
+        expect(response.headers.get("cache-control")).toBe("no-store");
+        expect(await response.text()).toBe("abc123-del-portal");
+        expect(world.exchanges).toBe(0);
+    });
+
+    it("sin token configurado es un 404, no un cuerpo vacío que el portal leería como token malo", async () => {
+        await start();
+        const response = await fetch(CHALLENGE);
+        expect(response.status).toBe(404);
+        expect(await response.text()).not.toBe("");
+    });
+
+    it("sólo GET y HEAD", async () => {
+        await start(withChallenge("abc123"));
+        expect((await fetch(CHALLENGE, { method: "HEAD" })).status).toBe(200);
+        expect((await fetch(CHALLENGE, { method: "POST" })).status).toBe(405);
     });
 });
 
@@ -899,6 +965,21 @@ describe("loadConfig en modo alojado", () => {
         );
         expect(config.hosted?.connectorClients).toEqual(["mcp-claude", "mcp-chatgpt"]);
         expect(config.hosted?.issuerInternalUrl).toBe("http://planvortex_keycloak:8080/realms/PlanVortex");
+    });
+
+    it("el token del desafío de OpenAI se recorta, y uno con espacios dentro no arranca", () => {
+        expect(loadConfig(BASE_ENV, ["--hosted"]).hosted?.openaiAppsChallenge).toBeUndefined();
+        expect(
+            loadConfig({ ...BASE_ENV, PLANVORTEX_MCP_OPENAI_APPS_CHALLENGE: "  tok-123\n" }, ["--hosted"])
+                .hosted?.openaiAppsChallenge,
+        ).toBe("tok-123");
+        expect(
+            loadConfig({ ...BASE_ENV, PLANVORTEX_MCP_OPENAI_APPS_CHALLENGE: "   " }, ["--hosted"]).hosted
+                ?.openaiAppsChallenge,
+        ).toBeUndefined();
+        expect(() =>
+            loadConfig({ ...BASE_ENV, PLANVORTEX_MCP_OPENAI_APPS_CHALLENGE: "tok 123" }, ["--hosted"]),
+        ).toThrow(/one token/);
     });
 
     it("--http y --hosted a la vez es un error, no una elección", () => {

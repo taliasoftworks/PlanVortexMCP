@@ -139,6 +139,16 @@ describe("catálogo de herramientas", () => {
         await harness.close();
     });
 
+    //El `_meta.securitySchemes` que lee ChatGPT es del modo alojado: aquí no hay OAuth ninguno, y
+    //anunciarlo mandaría a un cliente a buscar un inicio de sesión que no existe.
+    it("fuera del modo alojado ninguna anuncia OAuth", async () => {
+        const harness = await withServer({ allowAiPlans: true });
+        for (const tool of (await harness.client.listTools()).tools) {
+            expect(tool._meta?.["securitySchemes"], tool.name).toBeUndefined();
+        }
+        await harness.close();
+    });
+
     it("y aun así no existe ninguna herramienta de borrado", async () => {
         const harness = await withServer({ allowAiPlans: true });
         const names = (await harness.client.listTools()).tools.map((tool) => tool.name);

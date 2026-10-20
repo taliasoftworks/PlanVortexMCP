@@ -25,6 +25,7 @@ import type { CallToolResult } from "@modelcontextprotocol/server";
 import type { TransportMode } from "../config.js";
 import type { Context } from "../context.js";
 import { runTool } from "../errors.js";
+import { READ_SCOPE, WRITE_SCOPE } from "../oauth.js";
 
 /**
  * Las anotaciones que el cliente MCP pinta, y lo que miran las dos revisiones (fase 3 de
@@ -106,6 +107,7 @@ export function defineTool<I extends z.ZodType, O extends z.ZodType>(
                     : { idempotentHint: annotations.idempotentHint }),
                 openWorldHint: annotations.openWorldHint,
             },
+            ...securitySchemes(ctx, annotations),
         },
         //El `as` es el precio de tener un registrador genérico: el SDK infiere los argumentos del
         //esquema y aquí el esquema es una variable de tipo.
@@ -148,6 +150,22 @@ export function defineTool<I extends z.ZodType, O extends z.ZodType>(
             return withOrganizationNote(ctx, result, defaulted);
         }) as never,
     );
+}
+
+/**
+ * Qué autenticación pide cada herramienta, como la lee ChatGPT (fase 9 de `chatgpt.md`): OAuth, con
+ * `planvortex:read` las de lectura y `planvortex:write` las de escritura. OpenAI la quiere por
+ * herramienta aunque el servidor entero pida token, para poder cambiar una sola más adelante.
+ *
+ * Va en `_meta.securitySchemes`, la copia que OpenAI acepta para los clientes que sólo leen `_meta`,
+ * porque el SDK no deja pasar un `securitySchemes` suelto en la definición. Claude no la lee.
+ *
+ * Sólo en modo alojado: en stdio y en `--http` no hay OAuth ninguno, y anunciarlo sería mentir.
+ */
+function securitySchemes(ctx: Context, annotations: Annotations): { _meta?: Record<string, unknown> } {
+    if (ctx.config.mode !== "hosted") return {};
+    const scope = annotations.readOnlyHint ? READ_SCOPE : WRITE_SCOPE;
+    return { _meta: { securitySchemes: [{ type: "oauth2", scopes: [scope] }] } };
 }
 
 /**

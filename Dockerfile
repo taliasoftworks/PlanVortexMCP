@@ -7,7 +7,7 @@
 #   docker run --rm -p 127.0.0.1:3000:3000 -e ... planvortex-mcp --http --host 0.0.0.0
 # Y el alojado de mcp.planvortex.com (fase 2 de chatgpt.md, en PlanVortexServer), igual:
 #   ... planvortex-mcp --hosted --host 0.0.0.0   (sus variables, en `--help`)
-FROM node:22-alpine AS build
+FROM node:22.23.4-alpine AS build
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
@@ -15,7 +15,7 @@ COPY tsconfig.json tsup.config.ts ./
 COPY src ./src
 RUN npm run build
 
-FROM node:22-alpine
+FROM node:22.23.4-alpine
 WORKDIR /app
 ENV NODE_ENV=production
 COPY package*.json ./

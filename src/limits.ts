@@ -109,14 +109,21 @@ export function validatePublication(
         }
     }
 
+    //`total_images` cuenta IMÁGENES y aquí sólo hay ids, sin saber qué es cada fichero. Con un tope
+    //mayor que 0 da igual (un vídeo es un elemento más del carrusel), pero el 0 de YouTube quiere
+    //decir «sólo vídeo», no «nada»: comparar con él rechazaba TODO vídeo de YouTube. Una red sin
+    //imágenes que admite vídeo acepta UN fichero, y si es una imagen lo dice el servidor (943).
     const maxImages = limits.total_images?.[network];
+    const onlyVideo = maxImages === 0 && (limits.video_duration_in_seconds?.[network] ?? 0) > 0;
+    const maxFiles = onlyVideo ? 1 : maxImages;
     const files = input.files ?? [];
-    if (maxImages !== undefined && maxImages >= 0 && files.length > maxImages) {
+    if (maxFiles !== undefined && maxFiles >= 0 && files.length > maxFiles) {
         problems.push({
-            message:
-                maxImages === 0
-                    ? `${network} does not accept media on this kind of post.`
-                    : `${files.length} files were given and ${network} accepts ${maxImages}.`,
+            message: onlyVideo
+                ? `${network} takes exactly one video per post, and ${files.length} files were given.`
+                : maxFiles === 0
+                  ? `${network} does not accept media on this kind of post.`
+                  : `${files.length} files were given and ${network} accepts ${maxFiles}.`,
         });
     }
 

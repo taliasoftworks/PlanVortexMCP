@@ -4,6 +4,15 @@ All notable changes to `planvortex-mcp` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.1] — 2026-11-02
+
+**A YouTube video can be published again.** `create_publication` and `update_publication` checked
+the number of files against `total_images`, which is `0` on YouTube because YouTube only publishes
+video. Every YouTube post with its video was refused with "youtube does not accept media on this
+kind of post", in every mode. A network with no images that takes video now accepts one file, and
+two or more get a message that says it takes exactly one video. A network that takes neither
+images nor video still refuses any file.
+
 ## [0.13.0] — 2026-10-20
 
 **The hosted server gets ready for ChatGPT.** Nothing changes for stdio, for `--http` or for

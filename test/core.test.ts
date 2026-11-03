@@ -195,10 +195,10 @@ describe("los límites, en las dos unidades que hacen falta", () => {
         characters: { bluesky: 300, twitter: 280 },
         max_post_bytes: { bluesky: 3000 },
         title_characters: { bluesky: 0 },
-        total_images: { bluesky: 4 },
+        total_images: { bluesky: 4, youtube: 0, google_business: 0 },
         comment_characters: {},
         max_file_size_mb: {},
-        video_duration_in_seconds: {},
+        video_duration_in_seconds: { youtube: 900 },
     };
 
     it("un emoji de familia es UN grafema y VEINTICINCO bytes", () => {
@@ -233,6 +233,24 @@ describe("los límites, en las dos unidades que hacen falta", () => {
         expect(validatePublication(limits, { social_network: "bluesky", text: "  " })).toHaveLength(1);
         //Pero con fichero y sin texto, no: una foto sola es una publicación válida.
         expect(validatePublication(limits, { social_network: "bluesky", files: ["up-1"] })).toHaveLength(0);
+    });
+
+    it("el 0 de imágenes de YouTube no le quita el vídeo: admite UN fichero", () => {
+        expect(
+            validatePublication(limits, { social_network: "youtube", text: "hola", files: ["up-1"] }),
+        ).toHaveLength(0);
+        const problems = validatePublication(limits, {
+            social_network: "youtube",
+            text: "hola",
+            files: ["up-1", "up-2"],
+        });
+        expect(problems).toHaveLength(1);
+        expect(problems[0]?.message).toContain("exactly one video");
+    });
+
+    it("una red sin imágenes ni vídeo sigue sin aceptar ficheros", () => {
+        const problems = validatePublication(limits, { social_network: "google_business", files: ["up-1"] });
+        expect(problems[0]?.message).toContain("does not accept media");
     });
 });
 

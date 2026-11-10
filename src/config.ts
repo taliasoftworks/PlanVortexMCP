@@ -65,7 +65,9 @@ export interface HostedConfig {
 /**
  * Los conectores desde el primer día. De Claude, los dos predefinidos y los dos documentos de CIMD
  * de Anthropic (decisión 4). De ChatGPT, `mcp-chatgpt`, predefinido y confidencial, porque Keycloak
- * no acepta el documento de CIMD de OpenAI (trampa 6, probado el 17-10-2026).
+ * no acepta el documento de CIMD de OpenAI (trampa 6, probado el 17-10-2026). Y el documento de
+ * CIMD de Glama (desde la 0.13.3): con él pasa su prueba de salud, que inicializa y lista las
+ * herramientas con una cuenta de prueba, y quien use Glama puede conectar su propia cuenta.
  */
 export const DEFAULT_CONNECTOR_CLIENTS = [
     "mcp-claude",
@@ -73,6 +75,7 @@ export const DEFAULT_CONNECTOR_CLIENTS = [
     "https://claude.ai/oauth/mcp-oauth-client-metadata",
     "https://claude.ai/oauth/claude-code-client-metadata",
     "mcp-chatgpt",
+    "https://glama.ai/api/app/mcp/oauth/client-metadata.json",
 ];
 
 export interface Config {

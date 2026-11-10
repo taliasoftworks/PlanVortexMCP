@@ -4,6 +4,16 @@ All notable changes to `planvortex-mcp` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+**Glama can connect to the hosted server.** Its client ID metadata document
+(`https://glama.ai/api/app/mcp/oauth/client-metadata.json`) joins the connector clients accepted by
+default. Glama uses it for the health check of its connector listing, which initializes a session
+and lists the tools with a test account, and anyone using Glama can connect their own PlanVortex
+account through it. The authorization server still has to accept the document: with Keycloak, a
+client policy that trusts `glama.ai`. A deployment that sets `PLANVORTEX_MCP_CONNECTOR_CLIENTS`
+keeps its own list and gets nothing new.
+
 ## [0.13.2] — 2026-11-10
 
 **The hosted server tells the API which assistant is calling.** Its `User-Agent` goes from

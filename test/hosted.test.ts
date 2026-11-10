@@ -344,6 +344,14 @@ describe("los cuatro caminos de autenticación", () => {
         expect(response.status).toBe(200);
     });
 
+    it("acepta el documento de CIMD de Glama, que es con el que hace su prueba de salud", async () => {
+        await start();
+        const response = await rawInitialize(
+            `Bearer ${await assistantToken({ azp: "https://glama.ai/api/app/mcp/oauth/client-metadata.json" })}`,
+        );
+        expect(response.status).toBe(200);
+    });
+
     it("pero no el documento de CIMD de OpenAI, que Keycloak no acepta y nadie debería haber emitido", async () => {
         await start();
         const response = await rawInitialize(

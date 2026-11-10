@@ -158,6 +158,28 @@ export class HostedSession {
 }
 
 /**
+ * El `User-Agent` con que el modo alojado llama a la API: el de siempre más el `azp` del asistente
+ * que trajo el token (`mcp-claude`, `mcp-chatgpt`, el documento de CIMD de Claude Code…).
+ *
+ * Existe porque a la API le llega SÓLO el token canjeado, con `azp=planvortex_mcp` para todos: sin
+ * esto, Claude, Claude Code y ChatGPT son la misma cosa en el registro de uso del servidor, y saber
+ * cuál de los tres se usa es justo la pregunta. El `azp` no es secreto (es el id de un cliente
+ * público o predefinido) y ya sale en cada línea de log de este proceso.
+ *
+ * Se quitan paréntesis, punto y coma y caracteres de control: un comentario de `User-Agent` va
+ * entre paréntesis y un `)` dentro lo cerraría antes de tiempo. La lista de conectores se configura
+ * por entorno, así que no se da por hecho que todos sean URLs limpias.
+ */
+export function hostedUserAgent(azp: string): string {
+    const client = [...azp]
+        .filter((char) => char.charCodeAt(0) > 0x1f && char.charCodeAt(0) !== 0x7f && !"()\\;".includes(char))
+        .join("")
+        .trim()
+        .slice(0, 120);
+    return client ? `${USER_AGENT} (hosted; ${client})` : `${USER_AGENT} (hosted)`;
+}
+
+/**
  * El contexto de UNA petición: el mismo `Context` que ven las herramientas en stdio, construido
  * con las piezas de esta persona. Las herramientas no cambian (decisión 2).
  */
@@ -177,7 +199,7 @@ export function createHostedContext(base: Config, session: HostedSession, global
         authToken: undefined,
         uploadDirs: [],
     };
-    const fetchWithLimits = rateLimitedFetch([session.state.bucket, global], `${USER_AGENT} (hosted)`);
+    const fetchWithLimits = rateLimitedFetch([session.state.bucket, global], hostedUserAgent(session.principal.azp));
 
     let client: PlanVortex | undefined;
     const pv = (): PlanVortex => {
@@ -242,6 +264,8 @@ export async function serveHosted(config: Config, options: HostedOptions = {}): 
     const routes = {
         mcp: new URL(hosted.publicUrl).pathname,
         metadata: new URL(protectedResourceMetadataUrl(hosted.publicUrl)).pathname,
+        //Colgada del endpoint y no de la raíz: Glama verifica esa URL concreta, no el host.
+        glamaClaim: `${new URL(hosted.publicUrl).pathname.replace(/\/+$/, "")}${GLAMA_CLAIM_SUFFIX}`,
     };
     const metadata = JSON.stringify(protectedResourceMetadata(hosted));
 
@@ -272,6 +296,10 @@ export async function serveHosted(config: Config, options: HostedOptions = {}): 
         }
         if (path === OPENAI_APPS_CHALLENGE_PATH) {
             serveOpenAiChallenge(req, res, hosted.openaiAppsChallenge);
+            return;
+        }
+        if (path === routes.glamaClaim) {
+            serveGlamaClaim(req, res, hosted.glamaClaim);
             return;
         }
         if (path !== routes.mcp) {
@@ -374,6 +402,30 @@ function serveOpenAiChallenge(req: IncomingMessage, res: ServerResponse, token: 
     }
     res.writeHead(200, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" });
     res.end(req.method === "HEAD" ? undefined : token);
+}
+
+/** Lo que se le pega a la ruta del endpoint para servir el `claim` de Glama (`/mcp/.well-known/glama.json`). */
+export const GLAMA_CLAIM_SUFFIX = "/.well-known/glama.json";
+
+/**
+ * La prueba de que el conector es nuestro que pide Glama: un JSON con su `$schema` y el `claim`, por
+ * GET público, sin autenticación ni redirección. Sin `claim` configurado, 404, por lo mismo que el
+ * desafío de OpenAI. Sin caché, porque Glama vuelve a mirar justo después de que se configure.
+ */
+function serveGlamaClaim(req: IncomingMessage, res: ServerResponse, claim: string | undefined): void {
+    if (req.method !== "GET" && req.method !== "HEAD") {
+        res.writeHead(405, { allow: "GET" });
+        res.end();
+        return;
+    }
+    if (claim === undefined) {
+        res.writeHead(404, { "content-type": "application/json", "cache-control": "no-store" });
+        res.end(req.method === "HEAD" ? undefined : JSON.stringify({ error: "Not found." }));
+        return;
+    }
+    const body = JSON.stringify({ $schema: "https://glama.ai/mcp/schemas/connector.json", claim });
+    res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
+    res.end(req.method === "HEAD" ? undefined : body);
 }
 
 /** Los metadatos del recurso: públicos, cacheables y con CORS, como los de cualquier servidor OAuth. */

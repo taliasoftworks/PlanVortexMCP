@@ -4,6 +4,21 @@ All notable changes to `planvortex-mcp` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.2] — 2026-11-10
+
+**The hosted server tells the API which assistant is calling.** Its `User-Agent` goes from
+`planvortex-mcp/x.y.z (hosted)` to `planvortex-mcp/x.y.z (hosted; <azp>)`, where `<azp>` is the
+connector client the assistant signed in with (`mcp-claude`, `mcp-chatgpt`, Claude Code's client ID
+metadata document…). The exchanged token that reaches the API carries `azp=planvortex_mcp` for
+everybody, so without this the API could not tell Claude, Claude Code and ChatGPT apart in its usage
+records. Nothing changes for stdio or `--http`.
+
+**The hosted server can prove to Glama that the connector is ours.** With
+`PLANVORTEX_MCP_GLAMA_CLAIM` set, it answers `GET <endpoint>/.well-known/glama.json` (for us,
+`/mcp/.well-known/glama.json`) with the JSON Glama asks for, `$schema` plus `claim`, without
+authentication. It hangs off the endpoint and not the root because Glama verifies that one URL, not
+the host. Without the variable the route is a `404`, like the OpenAI domain challenge.
+
 ## [0.13.1] — 2026-11-02
 
 **A YouTube video can be published again.** `create_publication` and `update_publication` checked

@@ -16,7 +16,7 @@ import { SignJWT, UnsecuredJWT, decodeJwt, exportJWK, generateKeyPair } from "jo
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { BASE_URL, api, isError, paged, testConfig, textOf, withServer } from "./helpers.js";
 import { ConfigError, DEFAULT_CONNECTOR_CLIENTS, loadConfig, type Config } from "../src/config.js";
-import { serveHosted, type HostedHandle } from "../src/hosted.js";
+import { hostedUserAgent, serveHosted, type HostedHandle } from "../src/hosted.js";
 import { setLogLevel } from "../src/log.js";
 
 const PORT = 39_281;
@@ -48,6 +48,8 @@ interface World {
     exchanges: number;
     /** Cada `Authorization` que llegó a la API, tal cual. */
     apiAuthorizations: string[];
+    /** Cada `User-Agent` que llegó a la API. */
+    apiUserAgents: string[];
     /** `persona:organización` de cada lista de cuentas pedida. */
     accountsAsked: string[];
     clientsAsked: Record<string, number>;
@@ -58,7 +60,7 @@ const clients: Client[] = [];
 
 beforeEach(() => {
     setLogLevel("silent");
-    world = { exchanges: 0, apiAuthorizations: [], accountsAsked: [], clientsAsked: {} };
+    world = { exchanges: 0, apiAuthorizations: [], apiUserAgents: [], accountsAsked: [], clientsAsked: {} };
     api.use(...keycloak(), ...apiFor(ORGS));
 });
 
@@ -115,6 +117,7 @@ const ORGS: Record<string, { _id: string; name: string }[]> = {
 function caller(request: Request): string {
     const header = request.headers.get("authorization") ?? "";
     world.apiAuthorizations.push(header);
+    world.apiUserAgents.push(request.headers.get("user-agent") ?? "");
     return String(decodeJwt(header.replace(/^Bearer /, "")).sub);
 }
 
@@ -194,6 +197,7 @@ function hostedConfig(overrides: Partial<Config> = {}): Config {
             exchangeClientSecret: EXCHANGE_SECRET,
             connectorClients: [...DEFAULT_CONNECTOR_CLIENTS],
             openaiAppsChallenge: undefined,
+            glamaClaim: undefined,
         },
         ...overrides,
     });
@@ -204,6 +208,13 @@ function withChallenge(token: string): Partial<Config> {
     const hosted = hostedConfig().hosted;
     if (!hosted) throw new Error("hostedConfig sin hosted");
     return { hosted: { ...hosted, openaiAppsChallenge: token } };
+}
+
+/** La configuración de siempre, con el `claim` del conector de Glama. */
+function withGlamaClaim(claim: string): Partial<Config> {
+    const hosted = hostedConfig().hosted;
+    if (!hosted) throw new Error("hostedConfig sin hosted");
+    return { hosted: { ...hosted, glamaClaim: claim } };
 }
 
 async function start(overrides: Partial<Config> = {}): Promise<HostedHandle> {
@@ -353,6 +364,25 @@ describe("el canje: el token del asistente muere aquí (decisión 5)", () => {
             expect(header).toBe(`Bearer ${exchangedToken("alice")}`);
             expect(header).not.toContain(incoming);
         }
+    });
+
+    it("y le dice en el User-Agent qué asistente llama, que el token canjeado ya no lo lleva", async () => {
+        await start();
+        for (const azp of ["mcp-chatgpt", "https://claude.ai/oauth/claude-code-client-metadata"]) {
+            world.apiUserAgents = [];
+            const client = await connect(await assistantToken({ sub: "alice", azp }));
+            await client.callTool({ name: "list_accounts", arguments: {} });
+            expect(world.apiUserAgents.length).toBeGreaterThan(0);
+            for (const agent of world.apiUserAgents) {
+                expect(agent).toMatch(/^planvortex-mcp\/\S+ \(hosted; /);
+                expect(agent.endsWith(`(hosted; ${azp})`)).toBe(true);
+            }
+        }
+    });
+
+    it("un azp con paréntesis o punto y coma no rompe el comentario del User-Agent", () => {
+        expect(hostedUserAgent("raro(1); x")).toMatch(/\(hosted; raro1 x\)$/);
+        expect(hostedUserAgent("()")).toMatch(/ \(hosted\)$/);
     });
 
     it("se canjea una vez por persona y se reutiliza, también con peticiones a la vez", async () => {
@@ -722,6 +752,39 @@ describe("el desafío de dominio de OpenAI (fase 11)", () => {
     });
 });
 
+describe("el claim del conector de Glama", () => {
+    //Colgada del endpoint (`/mcp`), no de la raíz: es la URL que Glama comprueba.
+    const CLAIM_URL = `${PUBLIC_URL}/.well-known/glama.json`;
+
+    it("sirve el JSON que pide Glama, sin token y sin canje", async () => {
+        await start(withGlamaClaim("glama_claim_abc123"));
+        const response = await fetch(CLAIM_URL, { redirect: "manual" });
+        expect(response.status).toBe(200);
+        expect(response.headers.get("content-type")).toMatch(/^application\/json/);
+        expect(response.headers.get("cache-control")).toBe("no-store");
+        expect(await response.json()).toEqual({
+            $schema: "https://glama.ai/mcp/schemas/connector.json",
+            claim: "glama_claim_abc123",
+        });
+        expect(world.exchanges).toBe(0);
+    });
+
+    it("sin claim configurado es un 404, y en la raíz no existe", async () => {
+        await start();
+        expect((await fetch(CLAIM_URL)).status).toBe(404);
+        await handle?.close();
+        handle = undefined;
+        await start(withGlamaClaim("glama_claim_abc123"));
+        expect((await fetch(`http://127.0.0.1:${PORT}/.well-known/glama.json`)).status).toBe(404);
+    });
+
+    it("sólo GET y HEAD", async () => {
+        await start(withGlamaClaim("glama_claim_abc123"));
+        expect((await fetch(CLAIM_URL, { method: "HEAD" })).status).toBe(200);
+        expect((await fetch(CLAIM_URL, { method: "POST" })).status).toBe(405);
+    });
+});
+
 describe("ni un token en los logs (trampa 3 de oauth.ts)", () => {
     it("ni el del asistente, ni el canjeado, ni el secreto del canje, aunque el nivel sea debug", async () => {
         const written: string[] = [];
@@ -979,6 +1042,17 @@ describe("loadConfig en modo alojado", () => {
         ).toBeUndefined();
         expect(() =>
             loadConfig({ ...BASE_ENV, PLANVORTEX_MCP_OPENAI_APPS_CHALLENGE: "tok 123" }, ["--hosted"]),
+        ).toThrow(/one token/);
+    });
+
+    it("el claim de Glama se recorta, y uno con espacios dentro no arranca", () => {
+        expect(loadConfig(BASE_ENV, ["--hosted"]).hosted?.glamaClaim).toBeUndefined();
+        expect(
+            loadConfig({ ...BASE_ENV, PLANVORTEX_MCP_GLAMA_CLAIM: "  glama_claim_x\n" }, ["--hosted"]).hosted
+                ?.glamaClaim,
+        ).toBe("glama_claim_x");
+        expect(() =>
+            loadConfig({ ...BASE_ENV, PLANVORTEX_MCP_GLAMA_CLAIM: "glama claim" }, ["--hosted"]),
         ).toThrow(/one token/);
     });
 

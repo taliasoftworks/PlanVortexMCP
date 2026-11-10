@@ -55,6 +55,11 @@ export interface HostedConfig {
      * probar que el dominio es nuestro (fase 11 de `chatgpt.md`). Sin él, esa ruta da 404.
      */
     openaiAppsChallenge: string | undefined;
+    /**
+     * El `claim` que Glama pide servir en `<ruta del endpoint>/.well-known/glama.json` para dar el
+     * conector por nuestro. Verifica sólo esa URL, no el host. Sin él, esa ruta da 404.
+     */
+    glamaClaim: string | undefined;
 }
 
 /**
@@ -161,6 +166,7 @@ const EnvSchema = z.object({
     PLANVORTEX_MCP_EXCHANGE_CLIENT_SECRET: z.string().min(1).optional(),
     PLANVORTEX_MCP_CONNECTOR_CLIENTS: z.string().optional(),
     PLANVORTEX_MCP_OPENAI_APPS_CHALLENGE: z.string().optional(),
+    PLANVORTEX_MCP_GLAMA_CLAIM: z.string().optional(),
 });
 
 /**
@@ -380,6 +386,11 @@ function loadHostedConfig(env: NodeJS.ProcessEnv, value: z.infer<typeof EnvSchem
     if (openaiAppsChallenge !== undefined && /\s/.test(openaiAppsChallenge)) {
         throw new ConfigError("PLANVORTEX_MCP_OPENAI_APPS_CHALLENGE has to be one token, with no spaces.");
     }
+    //Lo mismo con el de Glama, que se copia igual de su panel.
+    const glamaClaim = value.PLANVORTEX_MCP_GLAMA_CLAIM?.trim() || undefined;
+    if (glamaClaim !== undefined && /\s/.test(glamaClaim)) {
+        throw new ConfigError("PLANVORTEX_MCP_GLAMA_CLAIM has to be one token, with no spaces.");
+    }
 
     return {
         publicUrl,
@@ -390,6 +401,7 @@ function loadHostedConfig(env: NodeJS.ProcessEnv, value: z.infer<typeof EnvSchem
         exchangeClientSecret: value.PLANVORTEX_MCP_EXCHANGE_CLIENT_SECRET as string,
         connectorClients,
         openaiAppsChallenge,
+        glamaClaim,
     };
 }
 
@@ -456,5 +468,6 @@ organization, ALLOW_AI, AUTH_TOKEN and UPLOAD_DIRS, and needs instead:
   PLANVORTEX_MCP_EXCHANGE_CLIENT_SECRET required — its secret
   PLANVORTEX_MCP_CONNECTOR_CLIENTS      optional — comma list of accepted azp
   PLANVORTEX_MCP_OPENAI_APPS_CHALLENGE  optional — token served at /.well-known/openai-apps-challenge
+  PLANVORTEX_MCP_GLAMA_CLAIM            optional — claim served at <endpoint>/.well-known/glama.json
 
 Docs: https://planvortex.com/developers`;

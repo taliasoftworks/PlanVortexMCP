@@ -13,7 +13,7 @@ import type { LogLevel } from "./log.js";
 
 /** Cómo se anuncia el servidor. La versión la sube el release, no la mano. */
 export const SERVER_NAME = "planvortex";
-export const VERSION = "0.13.1";
+export const VERSION = "0.13.2";
 
 /** El `User-Agent` con el que este servidor se distingue de la librería en los logs del API. */
 export const USER_AGENT = `planvortex-mcp/${VERSION}`;

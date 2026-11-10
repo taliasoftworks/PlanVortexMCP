@@ -157,6 +157,26 @@ describe("trampa 2 — el texto de terceros va envuelto y marcado", () => {
         await harness.close();
     });
 
+    it("un comentario que es solo una foto lo dice en el texto, y el estructurado no cambia", async () => {
+        api.use(
+            organizations(ORG_A),
+            http.get(`${BASE_URL}/organizations/org-a/comments`, () =>
+                HttpResponse.json(
+                    paged("comments", [
+                        { ...comment, text: "", files_urls: [{ url: "https://cdn.example/f.jpg", mime_type: "image/jpeg" }] },
+                    ]),
+                ),
+            ),
+        );
+        const harness = await withServer();
+        const result = await harness.client.callTool({ name: "list_comments", arguments: {} });
+        expect(isError(result)).toBe(false);
+        expect(textOf(result)).toContain("files: image (they open in the PlanVortex panel, not here)");
+        const structured = (result as { structuredContent?: { comments: object[] } }).structuredContent;
+        expect(Object.keys(structured?.comments[0] ?? {})).not.toContain("files");
+        await harness.close();
+    });
+
     it("un comentario que trae la etiqueta de cierre no se escapa del bloque", async () => {
         api.use(
             organizations(ORG_A),

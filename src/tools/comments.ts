@@ -17,7 +17,7 @@ import * as z from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
 import type { Context } from "../context.js";
 import { toolOk, ToolInputError } from "../errors.js";
-import { asLines, clampLimit, paginationNote, projectComment } from "../format/project.js";
+import { asLines, clampLimit, commentLine, paginationNote, projectComment } from "../format/project.js";
 import { UNTRUSTED_NOTICE } from "../format/untrusted.js";
 import { defineTool } from "./register.js";
 
@@ -82,7 +82,12 @@ export function registerCommentTools(server: McpServer, ctx: Context): void {
             const note = paginationNote(comments.length, page.total, args.offset ?? 0);
             //Sin comentarios no hay texto de terceros que marcar, y el aviso son cincuenta
             //palabras que el modelo paga por leer (§ trampa 7). Un buzón vacío se dice y ya.
-            const head = comments.length === 0 ? "" : `${UNTRUSTED_NOTICE}\n\n${asLines(comments)}\n\n`;
+            //El texto lleva además qué archivos trae cada uno (`commentLine`); el resultado estructurado,
+            //no: ver `filesNote`.
+            const head =
+                comments.length === 0
+                    ? ""
+                    : `${UNTRUSTED_NOTICE}\n\n${asLines(page.data.map(commentLine))}\n\n`;
             return toolOk(`${head}${note}`.trim(), {
                 comments,
                 total: page.total,
@@ -151,12 +156,15 @@ export function registerCommentTools(server: McpServer, ctx: Context): void {
             const more = thread.next_cursor
                 ? `\n\nMore replies: call again with offset "${thread.next_cursor}".`
                 : "";
-            return toolOk(`${UNTRUSTED_NOTICE}\n\n${asLines(comments)}${credits}${more}`.trim(), {
-                comments,
-                total: thread.total,
-                credits_consumed: thread.credits_consumed,
-                ...(thread.next_cursor === undefined ? {} : { next_cursor: thread.next_cursor }),
-            });
+            return toolOk(
+                `${UNTRUSTED_NOTICE}\n\n${asLines(thread.comments.map(commentLine))}${credits}${more}`.trim(),
+                {
+                    comments,
+                    total: thread.total,
+                    credits_consumed: thread.credits_consumed,
+                    ...(thread.next_cursor === undefined ? {} : { next_cursor: thread.next_cursor }),
+                },
+            );
         },
     );
 

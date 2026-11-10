@@ -6,6 +6,20 @@ All notable changes to `planvortex-mcp` are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.13.4] — 2026-11-10
+
+**A comment or a message that is only a photo no longer reads as empty.** `list_comments`,
+`get_comment_thread` and `list_messages` add a `files` line to every row that carries something
+besides its text: the kind of each file, in order (`image`, `video`, `audio`, `document`), and
+that they open in the PlanVortex panel. A Google Business review with stars and a photo, a Facebook
+comment that is just a sticker or a WhatsApp voice note used to reach the assistant as a row with no
+text, and the assistant took it for an empty one. Only the kind travels: PlanVortex does not store
+these files, and their links expire or need a token. The line goes in the text the assistant reads
+and **not** in `structuredContent`: the output schemas forbid extra keys, and a published ChatGPT
+plugin keeps the schema it was approved with. No tool, description or schema changes.
+
+## [0.13.3] — 2026-11-10
+
 **Glama can connect to the hosted server.** Its client ID metadata document
 (`https://glama.ai/api/app/mcp/oauth/client-metadata.json`) joins the connector clients accepted by
 default. Glama uses it for the health check of its connector listing, which initializes a session

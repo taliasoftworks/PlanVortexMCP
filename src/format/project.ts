@@ -206,6 +206,46 @@ export function projectUpload(upload: Upload): UploadView {
     };
 }
 
+/** Lo que es un archivo para quien lo lee: basta para decir «trae una foto». */
+export type FileKind = "image" | "video" | "audio" | "document";
+
+/**
+ * Qué trae un comentario o un mensaje ADEMÁS del texto (una foto, un vídeo, una nota de voz, un
+ * documento), por orden. Sin esto, un comentario que es solo una foto, o una reseña con estrellas y
+ * una foto, le llega al modelo como una fila vacía, y el modelo concluye que no dice nada.
+ *
+ * Solo el tipo: el archivo no se abre desde aquí (PlanVortex no lo guarda, lo pide a la red cuando
+ * alguien lo abre en el panel), y el enlace de la red caduca o no existe, así que darlo sería darle al
+ * modelo algo que no sirve para la llamada siguiente. Un SVG cuenta como documento, igual que en el
+ * panel. `files_urls` se lee a mano: el `Comment` y el `Message` de `planvortex` 0.14 no lo tipan.
+ */
+export function fileKinds(files: unknown): FileKind[] | undefined {
+    if (!Array.isArray(files) || files.length === 0) return undefined;
+    return files.map((file) => {
+        const mime = String((file as { mime_type?: unknown } | null)?.mime_type ?? "").toLowerCase();
+        if (mime.startsWith("image/") && mime !== "image/svg+xml") return "image";
+        if (mime.startsWith("video/")) return "video";
+        if (mime.startsWith("audio/")) return "audio";
+        return "document";
+    });
+}
+
+/**
+ * La línea `files` del TEXTO de un comentario o de un mensaje, o nada si no trae ninguno: un
+ * `files` vacío en cada fila es contexto pagado para nada (§ trampa 7).
+ *
+ * Va SOLO en el texto, no en `structuredContent`, a propósito. El esquema de salida de cada
+ * herramienta lleva `additionalProperties: false`, y ChatGPT se queda con el esquema que aprobó
+ * hasta que revise uno nuevo (OpenAI pide no romperlo mientras tanto): una clave nueva en el
+ * resultado podía hacer fallar `list_comments` en el plugin publicado. El texto lo leen los dos
+ * modelos, y la línea se explica sola, así que tampoco hizo falta tocar ninguna descripción: el
+ * contrato de las herramientas es el mismo que se aprobó.
+ */
+export function filesNote(files: unknown): { files?: string } {
+    const kinds = fileKinds(files);
+    return kinds ? { files: `${kinds.join(", ")} (they open in the PlanVortex panel, not here)` } : {};
+}
+
 export interface CommentView {
     id: string;
     social_network: string;
@@ -235,6 +275,11 @@ export function projectComment(comment: Comment): CommentView {
         hidden: comment.hidden,
         date: comment.creation_date,
     };
+}
+
+/** La fila de TEXTO de un comentario: su proyección más {@link filesNote}. */
+export function commentLine(comment: Comment): CommentView & { files?: string } {
+    return { ...projectComment(comment), ...filesNote((comment as { files_urls?: unknown }).files_urls) };
 }
 
 export interface ConversationView {
@@ -282,6 +327,15 @@ export function projectMessage(message: Message): MessageView {
         date: message.creation_date,
         message_type: String(message.message_type),
     };
+}
+
+/**
+ * La fila de TEXTO de un mensaje: su proyección más {@link filesNote}, con lo que trae en
+ * `message_options.files_urls` (una foto o una nota de voz que llegó de la red).
+ */
+export function messageLine(message: Message): MessageView & { files?: string } {
+    const options = (message as { message_options?: { files_urls?: unknown } }).message_options;
+    return { ...projectMessage(message), ...filesNote(options?.files_urls) };
 }
 
 export interface TopPublicationView {

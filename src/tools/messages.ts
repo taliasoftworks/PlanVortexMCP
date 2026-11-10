@@ -17,6 +17,7 @@ import { toolOk, ToolInputError } from "../errors.js";
 import {
     asLines,
     clampLimit,
+    messageLine,
     paginationNote,
     projectConversation,
     projectMessage,
@@ -114,7 +115,8 @@ export function registerMessageTools(server: McpServer, ctx: Context): void {
             });
             const messages = page.data.map(projectMessage);
             const note = paginationNote(messages.length, page.total, args.offset ?? 0);
-            return toolOk(`${UNTRUSTED_NOTICE}\n\n${asLines(messages)}\n\n${note}`.trim(), {
+            //Con qué archivos trae cada uno solo en el texto: ver `filesNote`
+            return toolOk(`${UNTRUSTED_NOTICE}\n\n${asLines(page.data.map(messageLine))}\n\n${note}`.trim(), {
                 messages,
                 total: page.total,
             });

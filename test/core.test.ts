@@ -12,7 +12,17 @@ import { TokenBucket } from "../src/ratelimit.js";
 import { DedupeCache, fingerprint } from "../src/dedupe.js";
 import { countText, validatePublication } from "../src/limits.js";
 import { UNTRUSTED_NOTICE, neutralise, wrapUntrusted } from "../src/format/untrusted.js";
-import { clampLimit, compactNumbers, paginationNote, snippet } from "../src/format/project.js";
+import {
+    clampLimit,
+    commentLine,
+    compactNumbers,
+    fileKinds,
+    messageLine,
+    paginationNote,
+    projectComment,
+    projectMessage,
+    snippet,
+} from "../src/format/project.js";
 import { log, setLogLevel } from "../src/log.js";
 
 const CREDENTIALS = { PLANVORTEX_CLIENT_ID: "id", PLANVORTEX_CLIENT_SECRET: "secret" };
@@ -300,6 +310,56 @@ describe("las proyecciones", () => {
         expect(paginationNote(0, 0)).toBe("No results.");
         //Sin total conocido, se dice que puede haber más en vez de dar a entender que no.
         expect(paginationNote(10, undefined)).toContain("There may be more");
+    });
+
+    it("un comentario o una reseña que es solo una foto lo dice en el texto, no llega vacío", () => {
+        const review = {
+            _id: "c1",
+            author: { external_id: "r1", is_own: false, name: "Marta" },
+            creation_date: "2026-11-10T00:00:00.000Z",
+            social_network: "google_business",
+            text: "",
+            rating: 5,
+            read: false,
+            replied: false,
+            hidden: false,
+            files_urls: [
+                { url: "https://lh3.googleusercontent.com/p/mesa", mime_type: "image/jpeg" },
+                { url: "https://video.googleusercontent.com/v/terraza", mime_type: "video/mp4" },
+            ],
+        } as never;
+        const line = commentLine(review);
+        expect(line.files).toBe("image, video (they open in the PlanVortex panel, not here)");
+        //Ni el enlace ni el id de la red: no sirven para ninguna llamada de aquí
+        expect(JSON.stringify(line)).not.toContain("googleusercontent");
+        //Y el resultado estructurado NO cambia: ChatGPT tiene aprobado un esquema sin `files`
+        //y con additionalProperties: false
+        expect("files" in projectComment(review)).toBe(false);
+
+        const plain = commentLine({
+            _id: "c2",
+            author: { name: "Luis" },
+            text: "Bien",
+            files_urls: [],
+        } as never);
+        //Sin archivos no hay clave: un `files` vacío en cada fila es contexto pagado para nada
+        expect("files" in plain).toBe(false);
+    });
+
+    it("un mensaje dice qué trae de la red, y un SVG es un documento", () => {
+        const message = {
+            _id: "m1",
+            from_contact_id: "ct1",
+            text: "",
+            read: false,
+            creation_date: "2026-11-10T00:00:00.000Z",
+            message_type: "file_message",
+            message_options: { files_urls: [{ mime_type: "audio/ogg", external_id: "a1" }] },
+        } as never;
+        expect(messageLine(message).files).toBe("audio (they open in the PlanVortex panel, not here)");
+        expect("files" in projectMessage(message)).toBe(false);
+        expect(fileKinds([{ mime_type: "image/svg+xml" }, {}])).toEqual(["document", "document"]);
+        expect(fileKinds(undefined)).toBeUndefined();
     });
 
     it("compactNumbers descarta lo que no es número, y no lo convierte en cero", () => {

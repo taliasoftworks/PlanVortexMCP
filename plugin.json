@@ -1,0 +1,13 @@
+{
+    "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+    "name": "planvortex",
+    "description": "Official MCP server for PlanVortex: let your AI assistant schedule posts, read the comment inbox and reply to messages across all your social networks.",
+    "author": {
+        "name": "Talia Softworks",
+        "url": "https://planvortex.com"
+    },
+    "homepage": "https://planvortex.com/en/developers",
+    "repository": "https://github.com/taliasoftworks/PlanVortexMCP",
+    "license": "MIT",
+    "keywords": ["mcp", "planvortex", "social-media", "scheduling", "publishing"]
+}

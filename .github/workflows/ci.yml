@@ -51,8 +51,8 @@ jobs:
             # Smithery) levantan el servidor con CERO variables de entorno para leerle el catalogo,
             # asi que un proceso que exige `client_id` para arrancar sale de ahi como una ficha
             # vacia. Lo que si se exige es que el catalogo no venga vacio y que la primera
-            # herramienta que sale a la red explique lo del plan Custom (trampa 15).
-            - name: Sin credenciales sirve el catalogo y explica lo del plan Custom
+            # herramienta que sale a la red explique de donde salen las credenciales (trampa 15).
+            - name: Sin credenciales sirve el catalogo y explica de donde salen las credenciales
               run: node scripts/introspect.mjs --expect-no-credentials -- node dist/cli.js
 
             # EL COMANDO QUE DECLARA EL manifest.json, que es el que ejecuta Claude Desktop cuando

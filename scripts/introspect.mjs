@@ -20,7 +20,7 @@
  *
  * Con `--expect-no-credentials` ademas exige lo que hace falta para que una ficha salga entera:
  * que el catalogo NO venga vacio sin credenciales, y que la primera herramienta que sale a la red
- * falle con la frase del plan Custom en vez de con un 401 sin explicacion.
+ * falle explicando de donde salen las credenciales en vez de con un 401 sin explicacion.
  */
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
@@ -127,20 +127,27 @@ createInterface({ input: child.stdout }).on("line", (line) => {
         if (message.result?.isError !== true) {
             return fail("sin credenciales, la herramienta contesto como si hubiera funcionado");
         }
-        //TRAMPA 15: las apps son del plan Custom. Un `401` a secas manda a esa persona a abrir un
-        //ticket, asi que la frase tiene que llegar hasta el modelo.
-        if (!text.includes("Custom plan") || !text.includes("PLANVORTEX_CLIENT_ID")) {
+        //TRAMPA 15: un `401` a secas manda a esa persona a abrir un ticket, asi que tiene que llegar
+        //hasta el modelo QUE variables faltan y DONDE se crea la app (`CREDENTIALS_HELP` en
+        //src/config.ts). Hasta el 13-11-2026 esto buscaba «Custom plan», una frase que el mensaje
+        //perdio cuando las apps se abrieron a todos los planes, y la CI estuvo en rojo por ello.
+        if (!mentionsWhereCredentialsComeFrom(text)) {
             return fail(
                 `el error de la herramienta no explica que faltan credenciales: ${text.slice(0, 200)}`,
             );
         }
-        process.stdout.write("tools/call     OK  isError, y el texto dice lo del plan Custom\n");
+        process.stdout.write("tools/call     OK  isError, y el texto dice de donde salen las credenciales\n");
         return finish();
     }
 });
 
+/** Las dos cosas que necesita quien arranca sin credenciales: que variables y donde se sacan. */
+function mentionsWhereCredentialsComeFrom(text) {
+    return text.includes("PLANVORTEX_CLIENT_ID") && text.includes("Settings -> Apps");
+}
+
 function finish() {
-    if (expectNoCredentials && !stderrText.includes("Custom plan")) {
+    if (expectNoCredentials && !mentionsWhereCredentialsComeFrom(stderrText)) {
         return fail("el arranque sin credenciales no aviso por stderr");
     }
     done = true;

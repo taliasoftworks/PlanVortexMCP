@@ -83,7 +83,9 @@ export function registerCatalogTools(server: McpServer, ctx: Context): void {
                 "carries a destination URL of its own. visibility, interactions and " +
                 "commercial_content are settings a post can carry (TikTok asks the user for all " +
                 "three; YouTube has visibility and made_for_kids), and publish_settings means " +
-                "create_publication reads what each account allows before posting. " +
+                "create_publication reads what each account allows before posting. statistics " +
+                "says whether PlanVortex reads any metric of that network (all of them but " +
+                "WhatsApp), so do not offer get_account_metrics on an account whose network has none. " +
                 "Check here before promising the user something.",
             inputSchema: z.object({}),
             annotations: { readOnlyHint: true, openWorldHint: false },
@@ -117,6 +119,8 @@ export function registerCatalogTools(server: McpServer, ctx: Context): void {
                             ?.made_for_kids,
                         publish_settings: (capability as unknown as Record<string, boolean> | undefined)
                             ?.publish_settings,
+                        statistics: (capability as unknown as Record<string, boolean> | undefined)
+                            ?.statistics,
                         comment_reply: matrix?.reply,
                         comment_hide: matrix?.hide,
                         comment_delete_own: matrix?.delete_own,

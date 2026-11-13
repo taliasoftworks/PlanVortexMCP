@@ -6,11 +6,19 @@ All notable changes to `planvortex-mcp` are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.14.0] — 2026-11-13
+
 **The repository root is now an [Agent Plugins](https://agent-plugins.org) plugin.** `plugin.json`
 and `mcp.json` describe the server for the plugin directories that scan a repository, such as
 cursor.directory. `mcp.json` starts it with `npx -y planvortex-mcp` and carries no credentials:
 the standard forbids secrets in that file, so `PLANVORTEX_CLIENT_ID` and `PLANVORTEX_CLIENT_SECRET`
 still come from the client's environment. Neither file is part of the npm package.
+
+### Added
+
+- **`get_social_capabilities` has a `statistics` column**: whether PlanVortex reads any metric of
+  that network. It is `true` on every network but WhatsApp, so an assistant no longer offers
+  `get_account_metrics` on an account that will only ever answer with an empty series.
 
 ## [0.13.4] — 2026-11-10
 

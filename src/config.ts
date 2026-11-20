@@ -13,7 +13,7 @@ import type { LogLevel } from "./log.js";
 
 /** Cómo se anuncia el servidor. La versión la sube el release, no la mano. */
 export const SERVER_NAME = "planvortex";
-export const VERSION = "0.14.0";
+export const VERSION = "0.15.0";
 
 /** El `User-Agent` con el que este servidor se distingue de la librería en los logs del API. */
 export const USER_AGENT = `planvortex-mcp/${VERSION}`;
@@ -97,7 +97,7 @@ export interface Config {
     authToken: string | undefined;
     /** Directorios desde los que `upload_media` puede leer un fichero (§ trampa 6). */
     uploadDirs: string[];
-    /** Apaga las nueve herramientas de escritura. */
+    /** Apaga las diez herramientas de escritura. */
     readOnly: boolean;
     /**
      * Enciende `create_ai_plan`, que es la única herramienta de este servidor que GASTA CRÉDITOS.

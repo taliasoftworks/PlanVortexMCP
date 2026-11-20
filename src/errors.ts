@@ -117,6 +117,12 @@ function advice(error: PlanVortexError, asUser: boolean): string {
     if (error.code === 945 || error.code === 2600) {
         return noCommentsAdvice(error);
     }
+    //Lo que sale al actuar sobre un comentario y no tiene arreglo reintentando: ocultar uno
+    //PROPIO (2603) y los de la credencial de comentarios de TikTok (2800-2899), que con
+    //`planvortex` 0.14 llegan SIN familia y caerían en el consejo genérico.
+    if (error.code === 2603 || (error.code >= 2800 && error.code <= 2899)) {
+        return commentActionAdvice(error);
+    }
     //Los campos de publicación que no cupieron en los 9xx (visibilidad, niños, y lo que exige la
     //auditoría de TikTok). Con `planvortex` 0.14 llegan SIN familia, como el 2600.
     if (error.code >= 2500 && error.code <= 2599) {
@@ -270,13 +276,23 @@ function rateAdvice(error: PlanVortexError): string {
 /**
  * No hay comentarios que leer ni a los que responder: ni es transitorio ni hay nada que corregir.
  *
- * - **945**: la RED no tiene comentarios en PlanVortex (TikTok, WhatsApp, Slack, Pinterest).
- * - **2600**: la red sí, pero ESTA CUENTA no. Hoy sólo un perfil personal de LinkedIn: LinkedIn no
- *   deja a ninguna app leer los comentarios de un perfil, sólo los de una página. El consejo útil
- *   es mandar a las páginas, porque quien pregunta por «los comentarios de LinkedIn» casi siempre
- *   tiene alguna conectada.
+ * - **945**: la RED no tiene comentarios en PlanVortex (WhatsApp, Slack, Pinterest).
+ * - **2600**: la red sí, pero ESTA CUENTA no. Un perfil personal de LinkedIn (LinkedIn no deja a
+ *   ninguna app leer los comentarios de un perfil, sólo los de una página: el consejo útil es
+ *   mandar a las páginas), o una cuenta de TikTok sin los comentarios activados (el consejo es
+ *   el panel: activarlos es una autorización en TikTok que sólo hace una persona). Se distinguen
+ *   por el `social_network` que trae el error en `data`.
  */
 function noCommentsAdvice(error: PlanVortexError): string {
+    if (error.code === 2600 && error.data["social_network"] === "tiktok") {
+        return (
+            "This TikTok account has no comment inbox yet: TikTok comments have to be turned on " +
+            "for each account, with one more authorization on TikTok (a personal account works as " +
+            "well as a Business one). A person does it in the PlanVortex panel (Accounts, the TikTok account, " +
+            "Enable comments); you cannot do it from here. Do not retry until then. Publishing with " +
+            "this account works as usual."
+        );
+    }
     if (error.code === 2600) {
         return (
             "This account has no comment inbox: it is a LinkedIn personal profile, and LinkedIn does " +
@@ -291,6 +307,50 @@ function noCommentsAdvice(error: PlanVortexError): string {
         "here. Do not retry. Call get_social_capabilities to see which connected networks have " +
         "comments."
     );
+}
+
+/**
+ * Actuar sobre un comentario y que no se pueda, sin que haya nada que corregir en el texto:
+ *
+ * - **2603**: ocultar o mostrar un comentario PROPIO. Ninguna red lo deja; lo propio se borra, y
+ *   borrar no está en este servidor.
+ * - **2804**: la credencial de los comentarios de TikTok caducó o la quitaron. Hay que volver a
+ *   activarlos en el panel; publicar sigue funcionando.
+ * - **2805**: TikTok frena a la app de PlanVortex. Pasajero.
+ * - **2809**: TikTok mantiene oculto el comentario (su moderación o la privacidad del autor).
+ */
+function commentActionAdvice(error: PlanVortexError): string {
+    switch (error.code) {
+        case 2603:
+            return (
+                "This comment was written by the client's own account, and no social network lets " +
+                "you hide your own comments. Do not retry. If the user wants it gone, it has to be " +
+                "deleted, and deleting is done in the PlanVortex panel, not from here."
+            );
+        case 2804:
+            return (
+                "TikTok no longer accepts the authorization behind this account's comments (it " +
+                "expired or was removed on TikTok). Do not retry. A person has to turn comments on " +
+                "again in the PlanVortex panel (Accounts, the TikTok account). Publishing with this " +
+                "account still works."
+            );
+        case 2805:
+            return (
+                "TikTok is rate limiting PlanVortex for a moment. It is temporary: wait about a " +
+                "minute before trying again, and do not loop."
+            );
+        case 2809:
+            return (
+                "TikTok keeps this comment hidden (its own moderation, or the privacy settings of " +
+                "whoever wrote it), so showing it had no effect. Nothing on PlanVortex can change " +
+                "that. Do not retry; tell the user."
+            );
+        default:
+            return (
+                "This is about TikTok comments and it is not a temporary failure. Do not retry; " +
+                "comments on TikTok are managed from the PlanVortex panel."
+            );
+    }
 }
 
 /**

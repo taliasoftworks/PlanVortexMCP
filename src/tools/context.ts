@@ -64,7 +64,8 @@ export function registerContextTools(server: McpServer, ctx: Context): void {
                 "and whether the connection is broken. An account with error_code other than 0 " +
                 "cannot publish until a person reconnects it, and that is usually the answer to " +
                 "'why did this post not go out'. On LinkedIn, personal_profile marks the person's " +
-                "own profile, as opposed to the pages they manage.",
+                "own profile, as opposed to the pages they manage. On TikTok, tiktok_comments says " +
+                "whether that account's comment inbox is turned on.",
             inputSchema: z.object({
                 id_organization: OrganizationArg,
                 social_network: z
@@ -91,6 +92,13 @@ export function registerContextTools(server: McpServer, ctx: Context): void {
                         personal_profile: z
                             .literal(true)
                             .describe("A LinkedIn personal profile: it publishes, but has no comment inbox.")
+                            .optional(),
+                        tiktok_comments: z
+                            .boolean()
+                            .describe(
+                                "TikTok only. false: this account has no comment inbox until a person turns " +
+                                    "comments on in the PlanVortex panel.",
+                            )
                             .optional(),
                     }),
                 ),

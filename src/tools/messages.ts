@@ -1,5 +1,5 @@
 /**
- * El buzón privado: tres herramientas, sólo en las redes con chat.
+ * El buzón privado: cuatro herramientas, sólo en las redes con chat.
  *
  * `send_message` lleva en la descripción el aviso de las ventanas de 24 h de Meta y de las
  * plantillas de WhatsApp **a propósito**: es el error que se comete siempre, y un modelo que no lo
@@ -222,6 +222,62 @@ export function registerMessageTools(server: McpServer, ctx: Context): void {
                 ? "This exact message was already sent moments ago, so it was not sent twice."
                 : "The message was sent.";
             return toolOk(text, { id: message._id, already_existed: alreadyExisted });
+        },
+    );
+
+    /**
+     * El «visto» EN LA RED (fase 65 del servidor, leido-en-la-red.md). Leer con `list_messages` solo
+     * marca en PlanVortex, a propósito: un asistente que resume la bandeja no puede ponerle los
+     * ticks azules a un cliente en nombre de la marca. Por eso es una herramienta aparte, y su
+     * descripción dice lo que `mark_comment_read` no tiene que decir: aquí EL CONTACTO LO VE.
+     *
+     * No destructiva (no se pierde nada y repetirla no cambia nada), pero sí de escritura y de mundo
+     * abierto: sale a la red y lo ve una persona de fuera.
+     */
+    defineTool(
+        server,
+        ctx,
+        {
+            name: "mark_conversation_read",
+            title: "Mark a conversation as read",
+            description:
+                "Tell the social network that the user has read a private conversation. THE " +
+                'CONTACT SEES IT: blue ticks on WhatsApp, "Seen" on Messenger and Instagram. ' +
+                "Reading with list_messages does not do this, and send_message does it on its own, " +
+                "so only call this when the user has actually seen the conversation and wants the " +
+                "contact to know. network_read false means the network has no read receipts, " +
+                "refused (try again later) or, on WhatsApp, the last message is over 30 days old.",
+            inputSchema: z.object({
+                id_account: z.string(),
+                id_contact: z.string().describe("The contact_id from list_conversations."),
+                id_organization: OrganizationArg,
+            }),
+            outputSchema: z.object({ network_read: z.boolean() }),
+            annotations: {
+                readOnlyHint: false,
+                destructiveHint: false,
+                idempotentHint: true,
+                openWorldHint: true,
+            },
+        },
+        async (args, context) => {
+            const idOrganization = await context.resolveOrganization(args.id_organization);
+            //La librería `planvortex` de la que depende este servidor aún no tiene
+            //`messages.markConversationRead()`: va por `request`, como `readPublishSettings`. Al subir
+            //la dependencia, cambiarlo por el método.
+            const response = await context.pv.request<{ success: boolean; network_read: boolean }>({
+                method: "POST",
+                path:
+                    `/organizations/${encodeURIComponent(idOrganization)}` +
+                    `/accounts/${encodeURIComponent(args.id_account)}` +
+                    `/messages/${encodeURIComponent(args.id_contact)}/read`,
+            });
+            const networkRead = response.data.network_read === true;
+            const text = networkRead
+                ? "Marked as read. The contact now sees it as read on the network."
+                : "Marked as read in PlanVortex, but the network was not marked: it has no read " +
+                  "receipts, refused, or the last message is too old (WhatsApp allows 30 days).";
+            return toolOk(text, { network_read: networkRead });
         },
     );
 }

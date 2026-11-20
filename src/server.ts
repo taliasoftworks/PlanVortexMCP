@@ -56,6 +56,10 @@ On LinkedIn one person can have two kinds of account: their personal profile (pe
 list_accounts) and the pages they manage. Both publish, but only pages have comments: LinkedIn does
 not let any app read the comments on a personal profile.
 
+TikTok comments work only on the accounts where a person turned them on in the PlanVortex panel
+(tiktok_comments in list_accounts). Turning them on is one more authorization on TikTok, and you
+cannot do that from here.
+
 {{AI_PLANS}}
 
 {{CONNECTION}}Two things to know before you start.

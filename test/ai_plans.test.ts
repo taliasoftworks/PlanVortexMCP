@@ -70,11 +70,11 @@ describe("el gate de PLANVORTEX_MCP_ALLOW_AI", () => {
         await harness.close();
     });
 
-    it("con el gate encendido sí está, y son treinta y dos", async () => {
+    it("con el gate encendido sí está, y son treinta y tres", async () => {
         const harness = await withServer({ allowAiPlans: true });
         const listed = (await harness.client.listTools()).tools.map((tool) => tool.name);
         expect(listed).toContain("create_ai_plan");
-        expect(listed).toHaveLength(32);
+        expect(listed).toHaveLength(33);
         await harness.close();
     });
 

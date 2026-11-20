@@ -20,7 +20,7 @@
  *   MCP que tenga configurados quien lo ejecute entran en la lista y el resultado deja de ser
  *   reproducible.
  * - **`--allowedTools` con las dieciséis de lectura**, que es lo que impide ejecutar una escritura.
- *   Las nueve de escritura tienen que estar VISIBLES —si no, los casos 4, 6 y 10 no pueden
+ *   Las diez de escritura tienen que estar VISIBLES —si no, los casos 4, 6 y 10 no pueden
  *   acertar—, pero su llamada se deniega: lo que se mide es la elección, no el efecto. Ojo con
  *   `--permission-mode plan`, que parecía lo suyo y no lo es: obliga al flujo del fichero de plan
  *   y el modelo empieza llamando a `Write` en TODOS los casos.
@@ -81,7 +81,7 @@ const BUILT_INS = [
 ];
 
 /**
- * Las nueve de escritura. Ninguna se ejecuta —están fuera de `--allowedTools`—, pero se nombran
+ * Las diez de escritura. Ninguna se ejecuta —están fuera de `--allowedTools`—, pero se nombran
  * porque hay casos cuya condición es que no se llame a NINGUNA, se lea lo que se lea antes.
  */
 const WRITE_TOOLS = [
@@ -90,6 +90,7 @@ const WRITE_TOOLS = [
     "hide_comment",
     "mark_comment_read",
     "send_message",
+    "mark_conversation_read",
     "create_publication",
     "update_publication",
     "retry_publication",
@@ -97,7 +98,7 @@ const WRITE_TOOLS = [
 ];
 
 /**
- * Las dieciséis herramientas de lectura, que son las únicas que se dejan EJECUTAR. Las nueve de
+ * Las dieciséis herramientas de lectura, que son las únicas que se dejan EJECUTAR. Las diez de
  * escritura siguen anunciadas —esconderlas invalidaría los casos 4, 6 y 10, que consisten justo en
  * elegirlas—, pero su llamada se deniega: lo que se mide es la elección, no el efecto.
  */

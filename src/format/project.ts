@@ -87,6 +87,13 @@ export interface AccountView {
      * el listado, cuál de las cuentas de LinkedIn es la persona y cuál la página.
      */
     personal_profile?: true;
+    /**
+     * Sólo en TikTok: si la bandeja de comentarios funciona en ESA cuenta. Los comentarios de
+     * TikTok son una segunda autorización (TikTok API for Business) que alguien activa en el
+     * panel; sin ella la cuenta publica y da el 2600 en todo lo de comentarios. `false` cubre
+     * las dos cosas que el modelo tiene que contar igual: nunca se activaron, o se cayeron (2804).
+     */
+    tiktok_comments?: boolean;
 }
 
 /**
@@ -98,7 +105,22 @@ function isPersonalProfile(account: Account): boolean {
     return extra?.is_personal_profile === true;
 }
 
+/**
+ * `extra_data.tiktok_business` leído a mano, como el perfil de LinkedIn: el `Account` de
+ * `planvortex` 0.14 no lo tipa. `undefined` fuera de TikTok, para no pintar el campo allí.
+ */
+function tiktokComments(account: Account): boolean | undefined {
+    if (String(account.social_network) !== "tiktok") {
+        return undefined;
+    }
+    const state = (
+        account as { extra_data?: { tiktok_business?: { comments?: unknown; error_code?: unknown } } }
+    ).extra_data?.tiktok_business;
+    return state?.comments === true && !state.error_code;
+}
+
 export function projectAccount(account: Account): AccountView {
+    const tiktok = tiktokComments(account);
     return {
         id: account._id,
         social_network: String(account.social_network),
@@ -108,6 +130,7 @@ export function projectAccount(account: Account): AccountView {
         error_code: account.error_code,
         healthy: !account.error_code,
         ...(isPersonalProfile(account) ? { personal_profile: true as const } : {}),
+        ...(tiktok === undefined ? {} : { tiktok_comments: tiktok }),
     };
 }
 

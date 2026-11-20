@@ -6,6 +6,31 @@ All notable changes to `planvortex-mcp` are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.15.0] — 2026-11-20
+
+### Added
+
+- **`mark_conversation_read`**: tells the social network that the user has read a private
+  conversation, and **the contact sees it** (blue ticks on WhatsApp, "Seen" on Messenger and
+  Instagram). Reading with `list_messages` marks the thread read in PlanVortex only, on purpose: an
+  assistant that summarises the inbox should not tell customers that somebody saw their message.
+  `send_message` marks it on its own before sending, so the new tool is for when the user has
+  read a conversation without replying. It answers `network_read`, which is `false` when the
+  network has no read receipts, refused, or on WhatsApp when the last message is over 30 days old.
+  It is a write tool (`readOnlyHint: false`, `destructiveHint: false`, `openWorldHint: true`), so
+  `PLANVORTEX_MCP_READ_ONLY` now removes ten tools, and a connection that only granted read access
+  does not see it. The catalogue goes from 31 to 32 tools; on ChatGPT a new tool stays hidden until
+  OpenAI approves it. It needs PlanVortex's server from 17 November 2026; until the `planvortex`
+  library has the method, the tool calls the route through `request`.
+- **TikTok comments.** PlanVortex's server reads and answers TikTok comments now, account by
+  account: a person turns them on in the PlanVortex panel, with one more authorization of the
+  account on TikTok (personal or Business). `list_accounts` says which TikTok accounts have them
+  (`tiktok_comments`, only on TikTok accounts), the server instructions say it, and the comment
+  tools work on them with no other change. Error 2600 on a TikTok account now sends the model to
+  the panel instead of to LinkedIn pages, and 2603 (hiding your own comment), 2804 (comments have
+  to be turned on again), 2805 (TikTok throttling) and 2809 (TikTok keeps the comment hidden) each
+  get their own advice instead of the generic one.
+
 ## [0.14.0] — 2026-11-13
 
 **The repository root is now an [Agent Plugins](https://agent-plugins.org) plugin.** `plugin.json`

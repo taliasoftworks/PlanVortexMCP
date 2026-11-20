@@ -110,7 +110,9 @@ export function registerCommentTools(server: McpServer, ctx: Context): void {
                 "and Pinterest have no comment inbox at all — a Slack thread is not read by " +
                 "PlanVortex, and Pinterest does not expose a pin's comments — so do not try, and " +
                 "do not retry: it is not a temporary failure. Neither does a LinkedIn personal " +
-                "profile (personal_profile in list_accounts): only LinkedIn pages have comments.",
+                "profile (personal_profile in list_accounts): only LinkedIn pages have comments. A " +
+                "TikTok account only has them once a person turned them on in the PlanVortex panel " +
+                "(tiktok_comments in list_accounts).",
             inputSchema: z.object({
                 id_publication: z.string().describe("The post whose thread to read.").optional(),
                 id_account: z
@@ -209,7 +211,8 @@ export function registerCommentTools(server: McpServer, ctx: Context): void {
             description:
                 "Hide a comment from the public timeline, or bring it back. It is reversible and " +
                 "it is not a deletion — this server cannot delete anything. Not every network can " +
-                "do it: LinkedIn has no hide at all. Call get_social_capabilities to check first.",
+                "do it: LinkedIn has no hide at all. Call get_social_capabilities to check first. " +
+                "The client's own comments and replies cannot be hidden on any network.",
             inputSchema: z.object({
                 id_comment: z.string(),
                 hidden: z.boolean().describe("true hides it, false brings it back.").default(true),

@@ -1,7 +1,5 @@
 # planvortex-mcp
 
-[![smithery badge](https://smithery.ai/badge/taliasoftworks/planvortex)](https://smithery.ai/servers/taliasoftworks/planvortex)
-
 The official [Model Context Protocol](https://modelcontextprotocol.io) server for
 [PlanVortex](https://planvortex.com). It lets an AI assistant — Claude Desktop, Claude Code, Cursor,
 VS Code — schedule posts, read the comment inbox and answer private messages across all your social
@@ -49,7 +47,7 @@ unread?"_
 
 ## What it can do
 
-Thirty-one tools, grouped by what they act on — and a thirty-second, `create_ai_plan`, that you
+Thirty-two tools, grouped by what they act on — and a thirty-third, `create_ai_plan`, that you
 switch on yourself (see [Generating with AI](#generating-with-ai)).
 
 | Group      | Tools                                                                                                                                    |
@@ -59,7 +57,7 @@ switch on yourself (see [Generating with AI](#generating-with-ai)).
 | AI planner | `get_planner_templates`, `list_store_products`, `list_ai_plans`, `get_ai_plan`, `get_ai_plan_results`, and `create_ai_plan` when enabled |
 | Media      | `upload_media`                                                                                                                           |
 | Comments   | `list_comments`, `get_comment_thread`, `reply_to_comment`, `hide_comment`, `mark_comment_read`                                           |
-| Messages   | `list_conversations`, `list_messages`, `send_message`                                                                                    |
+| Messages   | `list_conversations`, `list_messages`, `send_message`, `mark_conversation_read`                                                          |
 | Numbers    | `get_dashboard_summary`, `get_publication_stats`, `get_top_publications`, `get_account_metrics`                                          |
 | Catalog    | `get_social_limits`, `get_social_capabilities`, `create_connect_link`                                                                    |
 
@@ -122,7 +120,7 @@ That is a prompt-injection surface by construction, and it is worth knowing how 
 - Whether a publish is confirmed by a human is decided by your MCP client, not by this server. The
   tools declare the annotations that make clients show the warning; keep them on.
 
-Set `PLANVORTEX_MCP_READ_ONLY=1` to remove the nine write tools from the listing entirely — useful
+Set `PLANVORTEX_MCP_READ_ONLY=1` to remove the ten write tools from the listing entirely — useful
 if you want to give an unsupervised agent read access and nothing else.
 
 ### The `--http` mode
@@ -187,7 +185,7 @@ nothing in the line is a token, an argument or a result.
 | `PLANVORTEX_BASE_URL`        | no                         | Point at another PlanVortex deployment.                        |
 | `PLANVORTEX_MCP_UPLOAD_DIRS` | no                         | Directories `upload_media` may read from. Empty means none.    |
 | `PLANVORTEX_MCP_AUTH_TOKEN`  | with `--http` off-loopback | Bearer token the HTTP endpoint requires.                       |
-| `PLANVORTEX_MCP_READ_ONLY`   | no                         | `1` removes the nine write tools.                              |
+| `PLANVORTEX_MCP_READ_ONLY`   | no                         | `1` removes the ten write tools.                               |
 | `PLANVORTEX_MCP_ALLOW_AI`    | no                         | `1` adds `create_ai_plan`, which spends AI credits.            |
 | `PLANVORTEX_MCP_LOG_LEVEL`   | no                         | `debug`, `info`, `warn`, `error`, `silent`. Always to stderr.  |
 

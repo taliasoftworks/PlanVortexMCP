@@ -46,6 +46,7 @@ const EXPECTED_TOOLS = [
     "list_conversations",
     "list_messages",
     "send_message",
+    "mark_conversation_read",
     "get_dashboard_summary",
     "get_publication_stats",
     "get_top_publications",
@@ -55,7 +56,7 @@ const EXPECTED_TOOLS = [
     "create_connect_link",
 ];
 
-/** Las nueve que `PLANVORTEX_MCP_READ_ONLY` tiene que quitar del listado. */
+/** Las diez que `PLANVORTEX_MCP_READ_ONLY` tiene que quitar del listado. */
 const WRITE_TOOLS = [
     "create_publication",
     "update_publication",
@@ -65,15 +66,16 @@ const WRITE_TOOLS = [
     "hide_comment",
     "mark_comment_read",
     "send_message",
+    "mark_conversation_read",
     "create_connect_link",
 ];
 
 describe("catálogo de herramientas", () => {
-    it("son treinta y una y salen en orden determinista", async () => {
+    it("son treinta y dos y salen en orden determinista", async () => {
         const harness = await withServer();
         const listed = (await harness.client.listTools()).tools.map((tool) => tool.name);
         expect(listed).toEqual(EXPECTED_TOOLS);
-        expect(listed).toHaveLength(31);
+        expect(listed).toHaveLength(32);
         await harness.close();
     });
 
@@ -177,6 +179,8 @@ describe("catálogo de herramientas", () => {
             "get_comment_thread",
             "reply_to_comment",
             "send_message",
+            //El contacto ve el «visto»: sale a la red aunque no publique nada
+            "mark_conversation_read",
             "upload_media",
         ]) {
             expect(byName.get(name)?.annotations?.openWorldHint, name).toBe(true);
@@ -186,7 +190,7 @@ describe("catálogo de herramientas", () => {
 });
 
 describe("PLANVORTEX_MCP_READ_ONLY", () => {
-    it("quita las nueve de escritura del listado, no las desactiva", async () => {
+    it("quita las diez de escritura del listado, no las desactiva", async () => {
         const harness = await withServer({ readOnly: true });
         const listed = (await harness.client.listTools()).tools.map((tool) => tool.name);
         expect(listed).toHaveLength(22);
@@ -318,7 +322,7 @@ describe("las dos eras del protocolo", () => {
         const message = (await modernCall("tools/list")) as {
             result?: { tools?: unknown[]; resultType?: string; ttlMs?: number; cacheScope?: string };
         };
-        expect(message.result?.tools).toHaveLength(31);
+        expect(message.result?.tools).toHaveLength(32);
         expect(message.result?.resultType).toBe("complete");
         //`ttlMs: 0` es el valor conservador por defecto del SDK, y con él el orden determinista de
         //`server.ts` no sirve de nada: el cliente vuelve a pedir el catálogo en cada vuelta.

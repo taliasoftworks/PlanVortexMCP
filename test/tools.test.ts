@@ -1453,6 +1453,93 @@ describe("linkedin — el perfil personal publica pero no tiene bandeja", () => 
 });
 
 /**
+ * TikTok tiene comentarios cuenta a cuenta (fase 42 del servidor): una segunda autorización que
+ * activa una persona en el panel. El modelo no puede activarla, así que lo que importa es que
+ * sepa CUÁLES los tienen y que el 2600 de TikTok le mande al panel y no a las páginas de LinkedIn.
+ */
+describe("tiktok — comentarios cuenta a cuenta", () => {
+    const ON = {
+        _id: "acc-tt-on",
+        name: "Panadería",
+        social_network: "tiktok",
+        error_code: 0,
+        deleted: false,
+        extra_data: { tiktok_business: { username: "panaderia", comments: true, messages: false } },
+    };
+    const BROKEN = {
+        _id: "acc-tt-broken",
+        name: "Panadería 2",
+        social_network: "tiktok",
+        error_code: 0,
+        deleted: false,
+        extra_data: { tiktok_business: { username: "panaderia2", comments: true, error_code: 2804 } },
+    };
+    const OFF = {
+        _id: "acc-tt-off",
+        name: "Panadería 3",
+        social_network: "tiktok",
+        error_code: 0,
+        deleted: false,
+    };
+    const IG = {
+        _id: "acc-ig",
+        name: "Panadería IG",
+        social_network: "instagram",
+        error_code: 0,
+        deleted: false,
+    };
+
+    it("list_accounts dice qué cuentas de TikTok tienen la bandeja activa, y sólo en TikTok", async () => {
+        api.use(
+            organizations(ORG_A),
+            http.get(`${BASE_URL}/organizations/org-a/accounts`, () =>
+                HttpResponse.json(paged("accounts", [ON, BROKEN, OFF, IG])),
+            ),
+        );
+        const harness = await withServer();
+        const result = await harness.client.callTool({ name: "list_accounts", arguments: {} });
+        expect(isError(result)).toBe(false);
+        const accounts = (
+            result.structuredContent as { accounts: { id: string; tiktok_comments?: boolean }[] }
+        ).accounts;
+        expect(accounts.find((e) => e.id === "acc-tt-on")?.tiktok_comments).toBe(true);
+        //Caída (2804) es lo mismo que no activada para el modelo: hoy no hay bandeja.
+        expect(accounts.find((e) => e.id === "acc-tt-broken")?.tiktok_comments).toBe(false);
+        expect(accounts.find((e) => e.id === "acc-tt-off")?.tiktok_comments).toBe(false);
+        expect(accounts.find((e) => e.id === "acc-ig")).not.toHaveProperty("tiktok_comments");
+        await harness.close();
+    });
+
+    it("el 2600 de TikTok manda al panel, no a las páginas de LinkedIn", () => {
+        const text = explainError(
+            new PlanVortexError(
+                2600,
+                "This account has no comment inbox, although its social network has one",
+                {
+                    data: { social_network: "tiktok", id_account: "acc-tt-off" },
+                },
+            ),
+        );
+        expect(text).toContain("PlanVortex panel");
+        //Una cuenta personal vale (lo probó Paco el 19-11-2026): el consejo no puede mandar a
+        //cambiar el tipo de cuenta.
+        expect(text).toContain("personal account works");
+        expect(text).not.toContain("LinkedIn");
+    });
+
+    it("ni el 2804 ni el 2603 se arreglan reintentando", () => {
+        const caida = explainError(new PlanVortexError(2804, "The TikTok comments authorization expired"));
+        expect(caida).toContain("Do not retry");
+        expect(caida).toContain("Publishing with this account still works");
+        const propio = explainError(new PlanVortexError(2603, "Your own comments can't be hidden"));
+        expect(propio).toContain("Do not retry");
+        expect(propio).toContain("own");
+        const frenado = explainError(new PlanVortexError(2805, "TikTok is rate limiting"));
+        expect(frenado).toContain("temporary");
+    });
+});
+
+/**
  * TIKTOK: su guía de contenido exige que la PERSONA elija quién ve el post, las interacciones y si
  * es comercial, sin nada marcado de antemano. El modelo no puede saber qué privacidades admite una
  * cuenta, así que `create_publication` las lee y se las devuelve para que pregunte. Y nada de eso
@@ -1659,5 +1746,71 @@ describe("tiktok — lo que la persona tiene que elegir", () => {
             "never picks another one",
         );
         expect(explainError(new PlanVortexError(2507, "Not now"))).toContain("do not retry now");
+    });
+});
+
+/**
+ * EL «VISTO» EN LA RED (fase 65 del servidor). Leer con list_messages solo marca en PlanVortex: esta
+ * herramienta es la que se lo dice al contacto, y por eso es aparte y de escritura.
+ */
+describe("mark_conversation_read", () => {
+    const READ = `${BASE_URL}/organizations/org-a/accounts/acc-wa/messages/con-1/read`;
+
+    it("hace POST a /read y devuelve network_read", async () => {
+        let calls = 0;
+        api.use(
+            organizations(ORG_A),
+            http.post(READ, () => {
+                calls += 1;
+                return HttpResponse.json({ success: true, network_read: true });
+            }),
+        );
+        const harness = await withServer();
+        const result = await harness.client.callTool({
+            name: "mark_conversation_read",
+            arguments: { id_account: "acc-wa", id_contact: "con-1" },
+        });
+        expect(isError(result)).toBe(false);
+        expect(calls).toBe(1);
+        expect((result as { structuredContent?: object }).structuredContent).toEqual({ network_read: true });
+        expect(textOf(result)).toContain("now sees it as read");
+        await harness.close();
+    });
+
+    it("con network_read false no es un error: dice que en la red no quedó marcada", async () => {
+        api.use(
+            organizations(ORG_A),
+            http.post(READ, () => HttpResponse.json({ success: true, network_read: false })),
+        );
+        const harness = await withServer();
+        const result = await harness.client.callTool({
+            name: "mark_conversation_read",
+            arguments: { id_account: "acc-wa", id_contact: "con-1" },
+        });
+        expect(isError(result)).toBe(false);
+        expect((result as { structuredContent?: object }).structuredContent).toEqual({ network_read: false });
+        expect(textOf(result)).toContain("network was not marked");
+        await harness.close();
+    });
+
+    it("leer la conversación con list_messages NO la llama", async () => {
+        let marked = 0;
+        api.use(
+            organizations(ORG_A),
+            http.get(`${BASE_URL}/organizations/org-a/accounts/acc-wa/messages/con-1`, () =>
+                HttpResponse.json({ messages: [], total: 0 }),
+            ),
+            http.post(READ, () => {
+                marked += 1;
+                return HttpResponse.json({ success: true, network_read: true });
+            }),
+        );
+        const harness = await withServer();
+        await harness.client.callTool({
+            name: "list_messages",
+            arguments: { id_account: "acc-wa", id_contact: "con-1" },
+        });
+        expect(marked).toBe(0);
+        await harness.close();
     });
 });
